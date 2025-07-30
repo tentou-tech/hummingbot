@@ -1,0 +1,90 @@
+# Somnia Mainnet Configuration
+
+## Checklist
+- [ ] Chain ID: [NOT LAUNCHED YET]
+- [ ] Native token: [NOT LAUNCHED YET - likely SOM or STT]
+- [ ] Block explorer URL: [NOT LAUNCHED YET]
+- [ ] RPC endpoint: [NOT LAUNCHED YET]
+- [ ] Exchange contract address: [NOT LAUNCHED YET]
+- [ ] REST API endpoints: [NOT LAUNCHED YET]
+- [ ] WebSocket endpoints: [NOT LAUNCHED YET]
+- [ ] EIP-712 domain config: [NOT LAUNCHED YET]
+- [ ] Order structure: [NOT LAUNCHED YET]
+- [ ] Trading pairs: [NOT LAUNCHED YET]
+- [ ] Rate limits: [NOT LAUNCHED YET]
+- [ ] Fee structure: [NOT LAUNCHED YET]
+
+## Details
+
+### Launch Status
+**NOT LAUNCHED YET** - As of July 2025, Somnia mainnet has not been launched.
+
+### Development Timeline (from testnet.somnia.network roadmap)
+- ✅ Betanet: World Builder, Dynamic Worlds, New UI/UX rollout, Somnia SDK
+- ✅ Road to Devnet: Updated litepaper
+- ✅ Devnet Launch: Devnet public tests, Transfers, Native dex tests, NFT mint and trading
+- ✅ Testnet: Testnet launch, Validator, Betanet Migration, Devnet public tests
+- ⏳ **Mainnet**: Mainnet launch (PENDING)
+
+### Expected Chain Characteristics (based on testnet)
+- **Performance**: 1,000,000+ TPS with sub-second finality
+- **Fees**: Sub-cent transaction fees
+- **Compatibility**: EVM-compatible Layer 1 blockchain
+- **Consensus**: Proof-of-stake with MultiStream consensus protocol
+
+### Chain Name
+Somnia Mainnet (expected)
+
+### Chain ID
+[To be announced upon mainnet launch]
+
+### Native Token
+[To be announced - likely SOM or native STT]
+
+### Block Explorer
+[To be announced upon mainnet launch]
+
+### RPC Endpoint
+[To be announced - likely via Ankr partnership like testnet]
+
+### Exchange Contract Address
+[To be announced upon mainnet launch]
+
+### REST API Endpoints
+[To be announced - likely similar structure to testnet]
+
+### WebSocket Endpoints
+[To be announced - likely similar structure to testnet]
+
+### EIP-712 Domain Config
+[To be announced - likely similar to testnet with different chainId and contract]
+
+### Order Structure
+[To be announced - likely similar to testnet]
+
+### Trading Pairs
+[To be announced - likely native token pairs and major tokens]
+
+### Rate Limits
+[To be announced - likely more restrictive than testnet]
+
+### Fee Structure
+[To be announced - likely sub-cent fees as advertised]
+
+---
+
+## Research Notes
+
+- Mainnet launch is planned but no specific date announced as of July 2025
+- Current focus is on testnet (Shannon) development and ecosystem building
+- Ankr partnership for RPC services suggests similar infrastructure for mainnet
+- EVM compatibility means standard Ethereum tooling should work
+- High performance claims (1M+ TPS) suggest different scaling approach than typical L1s
+
+## Next Steps for Mainnet Preparation
+
+1. Monitor official announcements for mainnet launch date
+2. Join Discord for developer updates: https://discord.com/invite/somnia
+3. Test connector thoroughly on testnet first
+4. Prepare configuration switching mechanism for mainnet transition
+5. Update constants and contract addresses when mainnet details are announced
