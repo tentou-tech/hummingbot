@@ -49,11 +49,11 @@ def main():
     }
     install_requires = [
         "aiohttp>=3.8.5",
-        "asyncssh>=2.13.2",
         "aioprocessing>=2.0.1",
         "aioresponses>=0.7.4",
         "aiounittest>=1.4.2",
         "async-timeout>=4.0.2,<5",
+        "asyncssh>=2.13.2",
         "bidict>=0.22.1",
         "bip-utils",
         "cachetools>=5.3.1",
@@ -79,6 +79,7 @@ def main():
         "scipy>=1.11.1",
         "six>=1.16.0",
         "sqlalchemy>=1.4.49",
+        "standardweb3>=0.2.5",
         "tabulate>=0.9.0",
         "ujson>=5.7.0",
         "urllib3>=1.26.15,<2.0",
