@@ -9,8 +9,11 @@ It places buy and sell orders around the mid-price with a configurable spread.
 
 import asyncio
 import logging
+import os
 from decimal import Decimal
 from typing import List
+
+from dotenv import load_dotenv
 
 from hummingbot.client.config.config_helpers import ClientConfigAdapter
 from hummingbot.connector.gateway.somnia.somnia_connector import SomniaConnector
@@ -20,6 +23,9 @@ from hummingbot.core.data_type.limit_order import LimitOrder
 from hummingbot.core.event.events import OrderFilledEvent
 from hummingbot.strategy.market_trading_pair_tuple import MarketTradingPairTuple
 from hummingbot.strategy.strategy_py_base import StrategyPyBase
+
+# Load environment variables from .env file
+load_dotenv()
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -255,10 +261,13 @@ class SimpleMarketMakerSomnia(StrategyPyBase):
 
 
 async def main():
-    # Configuration
-    private_key = "your_private_key_here"  # Replace with your private key
-    rpc_url = "https://dream-rpc.somnia.network"  # Somnia testnet RPC URL
-    trading_pair = "ATOM-USDC"  # Example trading pair
+    # Configuration from environment variables
+    private_key = os.getenv("SOMNIA_PRIVATE_KEY")  # Load from .env file
+    rpc_url = os.getenv("SOMNIA_RPC_URL", "https://dream-rpc.somnia.network")  # Somnia testnet RPC URL
+    trading_pair = os.getenv("DEFAULT_TRADING_PAIR", "ATOM-USDC")  # Example trading pair
+
+    if not private_key:
+        raise ValueError("SOMNIA_PRIVATE_KEY not found in environment variables. Please check your .env file.")
 
     try:
         # Create an empty config adapter

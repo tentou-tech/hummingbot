@@ -6,9 +6,9 @@ import time
 from decimal import Decimal
 from typing import Any, Dict, List, Optional, Tuple
 
-from standardweb3 import StandardClient
+from standard import StandardClient
 
-from hummingbot.connector.gateway.gateway_evm_amm import GatewayEVMAMM
+from hummingbot.connector.gateway.gateway_base import GatewayBase
 from hummingbot.connector.gateway.gateway_order_tracker import GatewayOrderTracker
 from hummingbot.core.data_type.cancellation_result import CancellationResult
 from hummingbot.core.data_type.common import OrderType, TradeType
@@ -35,7 +35,7 @@ from .somnia_data_source import SomniaOrderBookDataSource
 from .somnia_utils import generate_timestamp, split_trading_pair
 
 
-class SomniaConnector(GatewayEVMAMM):
+class SomniaConnector(GatewayBase):
     """
     Connector for Somnia Exchange using standard.py library
     """

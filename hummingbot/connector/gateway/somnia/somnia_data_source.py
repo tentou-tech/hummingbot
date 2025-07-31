@@ -6,7 +6,7 @@ import time
 from decimal import Decimal
 from typing import Dict, List, Optional
 
-from standardweb3 import StandardClient
+from standard import StandardClient
 
 from hummingbot.core.data_type.order_book import OrderBook
 from hummingbot.core.data_type.order_book_message import OrderBookMessage, OrderBookMessageType

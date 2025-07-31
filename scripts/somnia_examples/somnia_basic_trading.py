@@ -6,20 +6,29 @@ This script demonstrates how to use the Somnia connector for basic trading opera
 
 import asyncio
 import logging
+import os
 from decimal import Decimal
+
+from dotenv import load_dotenv
 
 from hummingbot.client.config.config_helpers import ClientConfigAdapter
 from hummingbot.connector.gateway.somnia.somnia_connector import SomniaConnector
 from hummingbot.core.data_type.common import OrderType, TradeType
 
+# Load environment variables from .env file
+load_dotenv()
+
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Configuration
-PRIVATE_KEY = "your_private_key_here"  # Replace with your private key
-RPC_URL = "https://dream-rpc.somnia.network"  # Somnia testnet RPC URL
-TRADING_PAIR = "ATOM-USDC"  # Example trading pair
+# Configuration from environment variables
+PRIVATE_KEY = os.getenv("SOMNIA_PRIVATE_KEY")  # Load from .env file
+RPC_URL = os.getenv("SOMNIA_RPC_URL", "https://dream-rpc.somnia.network")  # Somnia testnet RPC URL
+TRADING_PAIR = os.getenv("DEFAULT_TRADING_PAIR", "ATOM-USDC")  # Example trading pair
+
+if not PRIVATE_KEY:
+    raise ValueError("SOMNIA_PRIVATE_KEY not found in environment variables. Please check your .env file.")
 
 
 async def main():
