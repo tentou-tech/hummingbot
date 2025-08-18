@@ -14,6 +14,21 @@ from .somnia_constants import SOMNIA_GRAPHQL_ENDPOINT
 # Global logger for this file
 logger = logging.getLogger(__name__)
 
+# Connector configuration constants required by Hummingbot
+CENTRALIZED = False  # Somnia is a DEX (decentralized exchange)
+EXAMPLE_PAIR = "SOL-USDC"  # Example trading pair for configuration prompts
+USE_ETHEREUM_WALLET = False  # Use Ethereum wallet for transactions (False for Solana-based chains)
+DEFAULT_FEES = [0.0, 0.0]  # Default trading fees (maker_fee, taker_fee) as percentages
+KEYS = {}  # Configuration keys required for the connector
+USE_ETH_GAS_LOOKUP = False  # Whether to use ETH gas lookup (False for Solana)
+
+# Additional domains or networks (empty for now)
+OTHER_DOMAINS = []
+OTHER_DOMAINS_DEFAULT_FEES = {}
+OTHER_DOMAINS_EXAMPLE_PAIR = {}
+OTHER_DOMAINS_KEYS = {}
+OTHER_DOMAINS_PARAMETER = {}
+
 
 def get_new_client_order_id(is_buy: bool, trading_pair: str) -> str:
     """
@@ -67,33 +82,32 @@ def convert_to_exchange_trading_pair(hb_trading_pair: str) -> str:
 
 def split_trading_pair(trading_pair: str) -> Tuple[str, str]:
     """
-    Splits a trading pair string into base and quote asset strings.
+    Split trading pair into base and quote tokens, converting symbols to addresses
 
     Args:
-        trading_pair: The trading pair in Hummingbot format (BASE-QUOTE)
-                     Can be either token symbols like "SOL-USDC" or
-                     token addresses like "0xABC...DEF-0x123...456"
+        trading_pair: Trading pair in format "BASE-QUOTE" (e.g., "STT-USDC")
 
     Returns:
-        A tuple of (base_asset, quote_asset) as token addresses
+        Tuple of (base_address, quote_address)
     """
+    from .somnia_constants import SOMNIA_TESTNET_TOKEN_ADDRESSES
+
     base, quote = trading_pair.split("-")
 
-    # In standardweb3 v0.0.2+, we need token addresses (0x...)
-    # TODO: If symbols are provided, convert to addresses using a mapping
-    # For now, we'll just make sure they're addresses
-
-    # Ensure base is an address
+    # Convert symbols to addresses if needed
     if not base.startswith("0x"):
-        # This is a temporary placeholder - in a real implementation,
-        # we should look up the address for this symbol in a mapping
-        raise ValueError(f"Base token {base} must be an address starting with 0x, not a symbol")
+        if base in SOMNIA_TESTNET_TOKEN_ADDRESSES:
+            base = SOMNIA_TESTNET_TOKEN_ADDRESSES[base]
+        else:
+            raise ValueError(f"Token symbol {base} not found in token address mapping. "
+                             f"Available tokens: {list(SOMNIA_TESTNET_TOKEN_ADDRESSES.keys())}")
 
-    # Ensure quote is an address
     if not quote.startswith("0x"):
-        # This is a temporary placeholder - in a real implementation,
-        # we should look up the address for this symbol in a mapping
-        raise ValueError(f"Quote token {quote} must be an address starting with 0x, not a symbol")
+        if quote in SOMNIA_TESTNET_TOKEN_ADDRESSES:
+            quote = SOMNIA_TESTNET_TOKEN_ADDRESSES[quote]
+        else:
+            raise ValueError(f"Token symbol {quote} not found in token address mapping. "
+                             f"Available tokens: {list(SOMNIA_TESTNET_TOKEN_ADDRESSES.keys())}")
 
     return base, quote
 

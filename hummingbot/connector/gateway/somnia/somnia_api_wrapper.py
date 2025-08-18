@@ -32,10 +32,27 @@ class SomniaAPIWrapper:
         self.token_address_to_symbol = {
             '0xb35a7935F8fbc52fB525F16Af09329b3794E8C42': 'SOL',
             '0x0ED782B8079529f7385c3eDA9fAf1EaA0DbC6a17': 'USDC',
+            '0x4A3BC48C156384f9564Fd65A53a2f3D534D8f2b7': 'STT',
         }
 
         # Reverse mapping for symbol to address
         self.symbol_to_address = {v: k for k, v in self.token_address_to_symbol.items()}
+
+    def trading_pair_to_ticker_id(self, trading_pair: str) -> str:
+        """
+        Convert a trading pair in format 'base_address-quote_address' to ticker_id format
+
+        Args:
+            trading_pair: Trading pair in format like '0xabc...-0xdef...'
+
+        Returns:
+            ticker_id in format like 'SOL_USDC'
+        """
+        if '-' not in trading_pair:
+            raise ValueError(f"Invalid trading pair format: {trading_pair}")
+
+        base_address, quote_address = trading_pair.split('-', 1)
+        return self._transform_address_to_ticker(base_address, quote_address)
 
     def _transform_address_to_ticker(self, base_address: str, quote_address: str) -> str:
         """

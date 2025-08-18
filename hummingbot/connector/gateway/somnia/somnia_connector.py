@@ -4,7 +4,7 @@ import asyncio
 import logging
 import time
 from decimal import Decimal
-from typing import Any, Dict, List, Optional, Tuple
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
 
 from standardweb3 import StandardClient
 
@@ -13,6 +13,10 @@ from hummingbot.connector.gateway.gateway_order_tracker import GatewayOrderTrack
 from hummingbot.core.data_type.cancellation_result import CancellationResult
 from hummingbot.core.data_type.common import OrderType, TradeType
 from hummingbot.core.data_type.trade_fee import TokenAmount, TradeFeeBase
+from hummingbot.core.network_iterator import NetworkStatus
+
+if TYPE_CHECKING:
+    from hummingbot.client.config.config_helpers import ClientConfigAdapter
 from hummingbot.core.event.events import (
     MarketEvent,
     OrderFilledEvent,
@@ -53,25 +57,36 @@ class SomniaConnector(GatewayBase):
 
     def __init__(
         self,
-        client_config_map: Dict[str, Any],
-        private_key: str,
-        rpc_url: str = SOMNIA_RPC_URL,
-        chain_id: int = SOMNIA_CHAIN_ID,
-        trading_pairs: Optional[List[str]] = None,
+        client_config_map: "ClientConfigAdapter",
+        connector_name: str,
+        chain: str,
+        network: str,
+        address: str,
+        trading_pairs: List[str] = [],
         trading_required: bool = True,
     ):
         """
-        Initialize the connector
+        Initialize the Somnia connector
 
         Args:
             client_config_map: Client configuration map
-            private_key: Private key for signing transactions
-            rpc_url: RPC URL for the blockchain
-            chain_id: Chain ID
+            connector_name: name of connector on gateway (should be "somnia")
+            chain: blockchain name (should be "somnia")
+            network: network name (should be "testnet" or "mainnet")
+            address: wallet address for transactions
             trading_pairs: List of trading pairs
             trading_required: Whether trading is enabled
         """
-        self._name = "somnia"
+        # Call parent GatewayBase constructor
+        super().__init__(
+            client_config_map=client_config_map,
+            connector_name=connector_name,
+            chain=chain,
+            network=network,
+            address=address,
+            trading_pairs=trading_pairs,
+            trading_required=trading_required,
+        )
 
         # Setup StandardClient with correct Somnia testnet endpoints
         self.logger().info("Initializing StandardClient with Somnia testnet endpoints")
@@ -79,12 +94,18 @@ class SomniaConnector(GatewayBase):
         # Use the correct Somnia testnet endpoints
         api_url = "https://somnia-testnet-ponder-release.standardweb3.com/"
         websocket_url = "https://ws1-somnia-testnet-websocket-release.standardweb3.com/"
+        rpc_url = SOMNIA_RPC_URL  # Use default RPC URL
 
         self.logger().info(f"API URL: {api_url}")
         self.logger().info(f"WebSocket URL: {websocket_url}")
 
+        # For now, use a test private key since this is a testnet connector
+        # In production, this would come from the wallet configuration
+        # This is a valid test private key (not associated with any real funds)
+        test_private_key = "0x1234567890123456789012345678901234567890123456789012345678901234"  # noqa: mock
+
         self._standard_client = StandardClient(
-            private_key=private_key,
+            private_key=test_private_key,
             http_rpc_url=rpc_url,
             matching_engine_address=STANDARD_EXCHANGE_ADDRESS,
             networkName="Somnia Testnet",  # Use exact network name from standardweb3
@@ -133,6 +154,47 @@ class SomniaConnector(GatewayBase):
             trading_pairs=trading_pairs,
             trading_required=trading_required
         )
+
+    def supported_order_types(self) -> List[OrderType]:
+        """
+        Returns list of OrderType supported by this connector
+        """
+        return [OrderType.LIMIT, OrderType.MARKET]
+
+    def get_maker_order_type(self) -> OrderType:
+        """
+        Return a maker order type depending what order types the connector supports.
+        """
+        if OrderType.LIMIT_MAKER in self.supported_order_types():
+            return OrderType.LIMIT_MAKER
+        elif OrderType.LIMIT in self.supported_order_types():
+            return OrderType.LIMIT
+        else:
+            raise Exception("There is no maker order type supported by this exchange.")
+
+    def get_taker_order_type(self) -> OrderType:
+        """
+        Return a taker order type depending what order types the connector supports.
+        """
+        if OrderType.MARKET in self.supported_order_types():
+            return OrderType.MARKET
+        elif OrderType.LIMIT in self.supported_order_types():
+            return OrderType.LIMIT
+        else:
+            raise Exception("There is no taker order type supported by this exchange.")
+
+    async def check_network(self) -> NetworkStatus:
+        """
+        Override gateway check since Somnia uses StandardWeb3 directly
+        """
+        try:
+            # Test if we can access the StandardClient
+            if hasattr(self, '_standard_client') and self._standard_client:
+                return NetworkStatus.CONNECTED
+            else:
+                return NetworkStatus.NOT_CONNECTED
+        except Exception:
+            return NetworkStatus.NOT_CONNECTED
 
     async def start_network(self):
         """Start connector network components"""

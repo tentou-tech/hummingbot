@@ -105,7 +105,7 @@ class GatewayConnectionSetting:
 
     @staticmethod
     def get_connector_spec_from_market_name(market_name: str) -> Optional[Dict[str, str]]:
-        for chain in ["ethereum", "solana"]:
+        for chain in ["ethereum", "solana", "somnia"]:
             if f"_{chain}_" in market_name:
                 connector, network = market_name.split(f"_{chain}_")
                 return GatewayConnectionSetting.get_connector_spec(connector, chain, network)
@@ -189,12 +189,23 @@ class ConnectorSetting(NamedTuple):
             if connector_spec is None:
                 raise ValueError(f"Cannot find connector specification for {self.name}. Please check your gateway connection settings.")
 
+            # Special handling for exchange-specific gateway connectors (like Somnia)
+            connector_name = connector_spec.get("connector", "")
+            if self.uses_clob_connector() and connector_name == "somnia":
+                return f"gateway.{connector_name}.{connector_name}_connector"
+
             # Simple module selection based on trading_types
             if "trading_types" not in connector_spec or not connector_spec["trading_types"]:
                 raise ValueError(f"No trading_types specified for {self.name}")
 
             # Convert to lowercase for consistency
-            trading_types = [t.lower() for t in connector_spec["trading_types"]]
+            trading_types_raw = connector_spec["trading_types"]
+            if isinstance(trading_types_raw, str):
+                # Handle comma-separated string
+                trading_types = [t.strip().lower() for t in trading_types_raw.split(",") if t.strip()]
+            else:
+                # Handle list
+                trading_types = [t.lower() for t in trading_types_raw]
 
             # If amm or clmm exists, use gateway_lp
             if "amm" in trading_types or "clmm" in trading_types:
@@ -273,12 +284,15 @@ class ConnectorSetting(NamedTuple):
                 address=connector_spec["wallet_address"],
             )
             if self.uses_clob_connector():
-                params["api_data_source"] = self._load_clob_api_data_source(
-                    trading_pairs=trading_pairs,
-                    trading_required=trading_required,
-                    client_config_map=client_config_map,
-                    connector_spec=connector_spec,
-                )
+                # Special handling for Somnia - it has its own implementation
+                connector_name = connector_spec.get("connector", "")
+                if connector_name != "somnia":
+                    params["api_data_source"] = self._load_clob_api_data_source(
+                        trading_pairs=trading_pairs,
+                        trading_required=trading_required,
+                        client_config_map=client_config_map,
+                        connector_spec=connector_spec,
+                    )
         elif not self.is_sub_domain:
             params = api_keys
         else:
@@ -423,11 +437,21 @@ class AllConnectorSettings:
 
         for connection_spec in gateway_connections_conf:
             market_name: str = GatewayConnectionSetting.get_market_name_from_connector_spec(connection_spec)
+
+            # Determine connector type based on connector name and trading types
+            connector_type = ConnectorType.GATEWAY_DEX  # Default
+            example_pair = "WETH-USDC"  # Default
+
+            # Special handling for CLOB-based DEX connectors
+            if connection_spec.get("connector") == "somnia":
+                connector_type = ConnectorType.CLOB_SPOT
+                example_pair = "SOL-USDC"
+
             cls.all_connector_settings[market_name] = ConnectorSetting(
                 name=market_name,
-                type=ConnectorType.GATEWAY_DEX,
+                type=connector_type,
                 centralised=False,
-                example_pair="WETH-USDC",
+                example_pair=example_pair,
                 use_ethereum_wallet=False,
                 trade_fee_schema=trade_fee_schema,
                 config_keys=None,

@@ -96,8 +96,24 @@ API_ENDPOINTS = {
 SOMNIA_TESTNET_TRADING_PAIRS = [
     "ATOM-USDC",
     "ATOM-OSMO",
-    "OSMO-USDC"
+    "OSMO-USDC",
+    "STT-USDC"
 ]
+
+# Token address mappings for Somnia testnet
+SOMNIA_TESTNET_TOKEN_ADDRESSES = {
+    "STT": "0x4A3BC48C156384f9564Fd65A53a2f3D534D8f2b7",  # Somnia Test Token (18 decimals)
+    "USDC": "0x0ED782B8079529f7385c3eDA9fAf1EaA0DbC6a17",  # USD Coin (6 decimals)
+    "WBTC": "0x54597df4E4A6385B77F39d458Eb75443A8f9Aa9e",  # Wrapped Bitcoin (8 decimals)
+    # Add more tokens as needed
+}
+
+# Token decimals mapping
+SOMNIA_TESTNET_TOKEN_DECIMALS = {
+    "STT": 18,
+    "USDC": 6,
+    "WBTC": 8,
+}
 
 # Error messages
 ERROR_MESSAGES = {
