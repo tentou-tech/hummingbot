@@ -6,7 +6,7 @@ import time
 from decimal import Decimal
 from typing import Dict, List, Optional
 
-from standard import StandardClient
+from standardweb3 import StandardClient
 
 from hummingbot.core.data_type.order_book import OrderBook
 from hummingbot.core.data_type.order_book_message import OrderBookMessage, OrderBookMessageType
@@ -30,16 +30,19 @@ class SomniaOrderBookDataSource(OrderBookTrackerDataSource):
 
     def __init__(self,
                  trading_pairs: List[str],
-                 standard_client: StandardClient):
+                 standard_client: StandardClient,
+                 api_wrapper = None):
         """
         Initialize the OrderBookDataSource
 
         Args:
             trading_pairs: List of trading pairs to track
             standard_client: Instance of StandardClient for API interactions
+            api_wrapper: API wrapper to fix standardweb3 compatibility issues
         """
         super().__init__(trading_pairs)
         self._standard_client = standard_client
+        self._api_wrapper = api_wrapper
         self._order_book_create_function = lambda: OrderBook()
         self._tasks = {}
 
@@ -90,14 +93,57 @@ class SomniaOrderBookDataSource(OrderBookTrackerDataSource):
         """
         order_book = self._order_book_create_function()
 
-        # Using StandardClient if available
-        if self._standard_client:
+        # Use our API wrapper if available, otherwise fallback to standard client
+        if self._api_wrapper:
+            base, quote = split_trading_pair(trading_pair)
+            try:
+                orderbook_data = await self._api_wrapper.fetch_orderbook(
+                    base=base,
+                    quote=quote
+                )
+
+                self.logger().info(f"Successfully fetched orderbook data via API wrapper for {trading_pair}")
+
+                # Process orderbook data
+                asks = []
+                bids = []
+
+                # Handle the format returned by our API wrapper
+                for order_data in orderbook_data.get("asks", []):
+                    if isinstance(order_data, list) and len(order_data) >= 2:
+                        # Format: [price, amount]
+                        price = Decimal(str(order_data[0]))
+                        amount = Decimal(str(order_data[1]))
+                    else:
+                        # Format: {"price": ..., "amount": ...}
+                        price = Decimal(str(order_data.get("price", order_data[0])))
+                        amount = Decimal(str(order_data.get("amount", order_data[1])))
+                    asks.append(OrderBookRow(price, amount, update_id=int(time.time() * 1000)))
+
+                for order_data in orderbook_data.get("bids", []):
+                    if isinstance(order_data, list) and len(order_data) >= 2:
+                        # Format: [price, amount]
+                        price = Decimal(str(order_data[0]))
+                        amount = Decimal(str(order_data[1]))
+                    else:
+                        # Format: {"price": ..., "amount": ...}
+                        price = Decimal(str(order_data.get("price", order_data[0])))
+                        amount = Decimal(str(order_data.get("amount", order_data[1])))
+                    bids.append(OrderBookRow(price, amount, update_id=int(time.time() * 1000)))
+
+                order_book.apply_snapshot(bids, asks, update_id=int(time.time() * 1000))
+                return order_book
+
+            except Exception as e:
+                self.logger().error(f"Error fetching order book via API wrapper: {e}")
+
+        # Fallback to StandardClient if available
+        elif self._standard_client:
             base, quote = split_trading_pair(trading_pair)
             try:
                 orderbook_data = await self._standard_client.fetch_orderbook(
                     base=base,
-                    quote=quote,
-                    limit=100  # Or appropriate value
+                    quote=quote
                 )
 
                 # Process orderbook data

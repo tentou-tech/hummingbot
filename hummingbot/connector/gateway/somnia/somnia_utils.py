@@ -71,11 +71,30 @@ def split_trading_pair(trading_pair: str) -> Tuple[str, str]:
 
     Args:
         trading_pair: The trading pair in Hummingbot format (BASE-QUOTE)
+                     Can be either token symbols like "SOL-USDC" or
+                     token addresses like "0xABC...DEF-0x123...456"
 
     Returns:
-        A tuple of (base_asset, quote_asset)
+        A tuple of (base_asset, quote_asset) as token addresses
     """
     base, quote = trading_pair.split("-")
+
+    # In standardweb3 v0.0.2+, we need token addresses (0x...)
+    # TODO: If symbols are provided, convert to addresses using a mapping
+    # For now, we'll just make sure they're addresses
+
+    # Ensure base is an address
+    if not base.startswith("0x"):
+        # This is a temporary placeholder - in a real implementation,
+        # we should look up the address for this symbol in a mapping
+        raise ValueError(f"Base token {base} must be an address starting with 0x, not a symbol")
+
+    # Ensure quote is an address
+    if not quote.startswith("0x"):
+        # This is a temporary placeholder - in a real implementation,
+        # we should look up the address for this symbol in a mapping
+        raise ValueError(f"Quote token {quote} must be an address starting with 0x, not a symbol")
+
     return base, quote
 
 

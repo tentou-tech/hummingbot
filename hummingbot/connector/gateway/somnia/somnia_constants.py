@@ -33,7 +33,7 @@ API_ENDPOINTS = {
     "orderbook": """
     query getOrderbook($baseCurrency: String!, $quoteCurrency: String!, $skip: Int!, $first: Int!) {
       sellOrders: orders(
-        where: {baseToken_: {symbol: $baseCurrency}, quoteToken_: {symbol: $quoteCurrency}, isFilled: false, isCancelled: false, side: 1}
+        where: {baseToken: $baseCurrency, quoteToken: $quoteCurrency, isFilled: false, isCancelled: false, side: 1}
         orderBy: price
         orderDirection: asc
         skip: $skip
@@ -46,7 +46,7 @@ API_ENDPOINTS = {
         side
       }
       buyOrders: orders(
-        where: {baseToken_: {symbol: $baseCurrency}, quoteToken_: {symbol: $quoteCurrency}, isFilled: false, isCancelled: false, side: 0}
+        where: {baseToken: $baseCurrency, quoteToken: $quoteCurrency, isFilled: false, isCancelled: false, side: 0}
         orderBy: price
         orderDirection: desc
         skip: $skip
@@ -63,7 +63,7 @@ API_ENDPOINTS = {
     "recent_trades": """
     query getRecentTrades($baseCurrency: String!, $quoteCurrency: String!, $skip: Int!, $first: Int!) {
       trades(
-        where: {baseToken_: {symbol: $baseCurrency}, quoteToken_: {symbol: $quoteCurrency}}
+        where: {baseToken: $baseCurrency, quoteToken: $quoteCurrency}
         orderBy: timestamp
         orderDirection: desc
         skip: $skip

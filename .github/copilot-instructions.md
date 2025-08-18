@@ -7,6 +7,7 @@ Use mcp(Serena...) to save your AI token as much as possible.
 ## Architecture Overview
 
 Must read #CURSOR_VSCODE_SETUP.md
+standardweb3 guide: https://github.com/standardweb3/standard.py/blob/main/README.md
 Hummingbot is a Python-based algorithmic trading framework with high-performance components written in Cython (.pyx files). The codebase follows these key architectural patterns:
 
 ### Core Components
