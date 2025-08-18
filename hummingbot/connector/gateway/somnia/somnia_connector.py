@@ -644,3 +644,37 @@ class SomniaConnector(GatewayBase):
             percent_token=fee_currency,
             flat_fees=[TokenAmount(token=fee_currency, amount=fee_amount)]
         )
+
+    def get_mid_price(self, trading_pair: str) -> Optional[Decimal]:
+        """
+        Get the mid price for a trading pair
+
+        Args:
+            trading_pair: Trading pair in format "base-quote"
+
+        Returns:
+            Decimal: Mid price, or None if not available
+        """
+        try:
+            # Get current orderbook
+            if hasattr(self._data_source, '_order_book_tracker') and \
+               trading_pair in self._data_source._order_book_tracker._order_books:
+
+                order_book = self._data_source._order_book_tracker._order_books[trading_pair]
+
+                # Get best bid and ask
+                best_bid = order_book.get_best_bid()
+                best_ask = order_book.get_best_ask()
+
+                if best_bid and best_ask:
+                    return (Decimal(str(best_bid.price)) + Decimal(str(best_ask.price))) / Decimal("2")
+
+            # Fallback: calculate from latest snapshot if available
+            # This could use self._data_source.get_new_order_book() but that's async
+            # For now, return None if no cached orderbook
+
+            return None
+
+        except Exception as e:
+            self.logger().error(f"Error getting mid price for {trading_pair}: {e}")
+            return None
