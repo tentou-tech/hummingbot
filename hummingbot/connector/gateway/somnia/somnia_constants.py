@@ -97,7 +97,8 @@ SOMNIA_TESTNET_TRADING_PAIRS = [
     "ATOM-USDC",
     "ATOM-OSMO",
     "OSMO-USDC",
-    "STT-USDC"
+    "STT-USDC",
+    "TOKEN1-TOKEN2"  # New pair: 0x33E7fAB0a8a5da1A923180989bD617c9c2D1C493/0x9beaA0016c22B646Ac311Ab171270B0ECf23098F
 ]
 
 # Token address mappings for Somnia testnet
@@ -105,6 +106,8 @@ SOMNIA_TESTNET_TOKEN_ADDRESSES = {
     "STT": "0x4A3BC48C156384f9564Fd65A53a2f3D534D8f2b7",  # Somnia Test Token (18 decimals)
     "USDC": "0x0ED782B8079529f7385c3eDA9fAf1EaA0DbC6a17",  # USD Coin (6 decimals)
     "WBTC": "0x54597df4E4A6385B77F39d458Eb75443A8f9Aa9e",  # Wrapped Bitcoin (8 decimals)
+    "TOKEN1": "0x33E7fAB0a8a5da1A923180989bD617c9c2D1C493",  # Custom Token 1 (18 decimals)
+    "TOKEN2": "0x9beaA0016c22B646Ac311Ab171270B0ECf23098F",  # Custom Token 2 (18 decimals)
     # Add more tokens as needed
 }
 
@@ -113,6 +116,8 @@ SOMNIA_TESTNET_TOKEN_DECIMALS = {
     "STT": 18,
     "USDC": 6,
     "WBTC": 8,
+    "TOKEN1": 18,
+    "TOKEN2": 18,
 }
 
 # Error messages
