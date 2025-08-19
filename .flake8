@@ -1,9 +1,6 @@
 [flake8]
-filename = *.py, *.pyx, *.pxd
-ignore = E251, E501,E702,W504,W503
-per-file-ignores =
-    hummingbot/**/*.pyx: E225, E226, E251, E999
-    hummingbot/**/*.pxd: E225, E226, E251, E999
-    test/**/*.pyx: E225, E226, E251, E999
-    test/**/*.pxd: E225, E226, E251, E999
 max-line-length = 120
+ignore = E203,W503,E402,F401
+exclude = build,__pycache__,.git,*.egg-info,dist
+per-file-ignores = 
+    scripts/*:E402,F401
