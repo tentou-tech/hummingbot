@@ -1,10 +1,18 @@
 #!/usr/bin/env python
 
+import os
+
 # Network
 SOMNIA_CHAIN_ID = 50312
 SOMNIA_RPC_URL = "https://dream-rpc.somnia.network"
 SOMNIA_GRAPHQL_ENDPOINT = "https://haifu-release-api.up.railway.app/graphql"
 SOMNIA_WEBSOCKET_URL = "wss://ws3-somnia-testnet-ponder-release.standardweb3.com"
+
+# Ponder API for orderbook fallback
+SOMNIA_PONDER_API_URL = os.getenv(
+    "SOMNIA_PONDER_API_URL", 
+    "https://somnia-testnet-ponder-release.standardweb3.com"
+)
 
 # Standard Exchange protocol endpoints
 STANDARD_EXCHANGE_ADDRESS = "0x0d3251EF0D66b60C4E387FC95462Bf274e50CBE1"  # To be verified

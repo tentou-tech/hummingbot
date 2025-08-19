@@ -14,6 +14,7 @@ This wrapper intercepts API calls and transforms them to the correct format.
 """
 
 import logging
+import time
 from typing import Any, Dict
 
 import aiohttp
@@ -103,7 +104,7 @@ class SomniaAPIWrapper:
 
     async def fetch_orderbook(self, base: str, quote: str) -> Dict[str, Any]:
         """
-        Fetch orderbook data with proper format transformation
+        Fetch orderbook data with proper format transformation and Ponder API fallback
 
         Args:
             base: Base token address (what standardweb3 sends)
@@ -112,6 +113,7 @@ class SomniaAPIWrapper:
         Returns:
             Orderbook data in standardweb3 expected format
         """
+        # Try primary API first
         try:
             # Transform to Somnia API format
             ticker_id = self._transform_address_to_ticker(base, quote)
@@ -129,7 +131,7 @@ class SomniaAPIWrapper:
                         # Somnia returns: {"ticker_id": "SOL/USDC", "bids": [...], "asks": [...]}
                         # standardweb3 expects similar format
 
-                        return {
+                        result = {
                             'symbol': data.get('ticker_id', ticker_id.replace('_', '/')),
                             'bids': data.get('bids', []),
                             'asks': data.get('asks', []),
@@ -138,12 +140,83 @@ class SomniaAPIWrapper:
                             'base': base,
                             'quote': quote
                         }
+                        self.logger.info(f"✅ Primary API successful for {ticker_id}")
+                        return result
                     else:
                         error_text = await response.text()
                         raise Exception(f"HTTP error! status: {response.status}, response: {error_text}")
 
         except Exception as e:
-            self.logger.error(f"Error in fetch_orderbook: {e}")
+            self.logger.warning(f"Primary API failed for {base}/{quote}: {e}")
+
+        # Fallback to Ponder API
+        try:
+            return await self._fetch_orderbook_from_ponder(base, quote)
+        except Exception as e:
+            self.logger.error(f"All orderbook APIs failed for {base}/{quote}: {e}")
+            raise
+
+    async def _fetch_orderbook_from_ponder(self, base: str, quote: str) -> Dict[str, Any]:
+        """
+        Fetch orderbook from Ponder API as fallback
+        
+        Args:
+            base: Base token address
+            quote: Quote token address
+            
+        Returns:
+            Orderbook data in standardweb3 expected format
+        """
+        from .somnia_constants import SOMNIA_PONDER_API_URL
+        
+        try:
+            # Ponder API expects the blocks endpoint format
+            url = f"{SOMNIA_PONDER_API_URL}/api/orderbook/blocks/{base}/{quote}/1/5/true"
+            
+            async with aiohttp.ClientSession() as session:
+                async with session.get(url, timeout=10) as response:
+                    if response.status == 200:
+                        data = await response.json()
+                        
+                        # Transform Ponder API response to standardweb3 format
+                        # Ponder returns: {"symbol": "STT/USDC", "bids": [...], "asks": [...], ...}
+                        bids = []
+                        asks = []
+                        
+                        # Transform bids
+                        for bid in data.get('bids', []):
+                            if isinstance(bid, dict):
+                                price = str(bid.get('price', 0))
+                                # Use baseLiquidity for amount since that's what we're buying
+                                amount = str(bid.get('baseLiquidity', 0))
+                                bids.append([price, amount])
+                        
+                        # Transform asks
+                        for ask in data.get('asks', []):
+                            if isinstance(ask, dict):
+                                price = str(ask.get('price', 0))
+                                # Use baseLiquidity for amount since that's what we're selling
+                                amount = str(ask.get('baseLiquidity', 0))
+                                asks.append([price, amount])
+                        
+                        ticker_id = self._transform_address_to_ticker(base, quote)
+                        result = {
+                            'symbol': data.get('symbol', ticker_id.replace('_', '/')),
+                            'bids': bids,
+                            'asks': asks,
+                            'timestamp': int(time.time() * 1000),
+                            'base': base,
+                            'quote': quote
+                        }
+                        
+                        self.logger.info(f"✅ Ponder API fallback successful for {ticker_id} - Bids: {len(bids)}, Asks: {len(asks)}")
+                        return result
+                    else:
+                        error_text = await response.text()
+                        raise Exception(f"Ponder API HTTP error! status: {response.status}, response: {error_text}")
+                        
+        except Exception as e:
+            self.logger.error(f"Ponder API fallback failed for {base}/{quote}: {e}")
             raise
 
     async def fetch_token_info(self, address: str) -> Dict[str, Any]:
