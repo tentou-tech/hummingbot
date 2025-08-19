@@ -320,9 +320,16 @@ class SomniaConnector(GatewayBase):
 
         # Fetch REAL balances from blockchain
         balances = {}
-        for token in tokens:
+        for token_address in tokens:
             try:
-                self.logger().info(f"🔍 Fetching REAL balance for token: {token}")
+                # Convert address back to symbol for logging and storage
+                from .somnia_constants import SOMNIA_TESTNET_TOKEN_ADDRESSES, SOMNIA_TESTNET_TOKEN_DECIMALS
+                
+                # Create reverse mapping from address to symbol
+                address_to_symbol = {v: k for k, v in SOMNIA_TESTNET_TOKEN_ADDRESSES.items()}
+                token_symbol = address_to_symbol.get(token_address, token_address)
+                
+                self.logger().info(f"🔍 Fetching REAL balance for token: {token_symbol} ({token_address})")
 
                 # Get real balance using Web3
                 try:
@@ -338,13 +345,45 @@ class SomniaConnector(GatewayBase):
                     if web3.is_connected():
                         wallet_address = self._standard_client.address
 
-                        # For native STT token (if this is the native token address)
-                        if token == "0x4A3BC48C156384f9564Fd65A53a2f3D534D8f2b7":
-                            # This might be the native token, check native balance
-                            native_balance_wei = web3.eth.get_balance(wallet_address)
-                            native_balance = web3.from_wei(native_balance_wei, 'ether')
-                            balances[token] = Decimal(str(native_balance))
-                            self.logger().info(f"✅ Native STT balance: {native_balance}")
+                        # For STT token (prioritize native balance, then try ERC20)
+                        if token_symbol == "STT" and token_address == "0x4A3BC48C156384f9564Fd65A53a2f3D534D8f2b7":
+                            # Try native balance first for STT
+                            try:
+                                native_balance_wei = web3.eth.get_balance(wallet_address)
+                                native_balance = web3.from_wei(native_balance_wei, 'ether')
+                                if native_balance > 0:
+                                    balances[token_symbol] = Decimal(str(native_balance))
+                                    self.logger().info(f"✅ Native STT balance: {native_balance}")
+                                else:
+                                    # If native balance is 0, try ERC20
+                                    self.logger().info(f"Native STT balance is 0, trying ERC20...")
+                                    erc20_abi = [
+                                        {
+                                            "constant": True,
+                                            "inputs": [{"name": "_owner", "type": "address"}],
+                                            "name": "balanceOf",
+                                            "outputs": [{"name": "balance", "type": "uint256"}],
+                                            "type": "function"
+                                        },
+                                        {
+                                            "constant": True,
+                                            "inputs": [],
+                                            "name": "decimals",
+                                            "outputs": [{"name": "", "type": "uint8"}],
+                                            "type": "function"
+                                        }
+                                    ]
+
+                                    contract = web3.eth.contract(address=Web3.to_checksum_address(token_address), abi=erc20_abi)
+                                    balance_wei = contract.functions.balanceOf(Web3.to_checksum_address(wallet_address)).call()
+                                    decimals = SOMNIA_TESTNET_TOKEN_DECIMALS.get(token_symbol, 18)
+                                    balance = Decimal(balance_wei) / Decimal(10 ** decimals)
+                                    balances[token_symbol] = balance
+                                    self.logger().info(f"✅ ERC20 STT balance: {balance}")
+                                
+                            except Exception as stt_error:
+                                self.logger().error(f"❌ STT balance error: {stt_error}")
+                                balances[token_symbol] = Decimal("0")
                         else:
                             # For ERC20 tokens, call the contract
                             try:
@@ -353,7 +392,7 @@ class SomniaConnector(GatewayBase):
                                     {
                                         "constant": True,
                                         "inputs": [{"name": "_owner", "type": "address"}],
-                                        "name": "balanceO",
+                                        "name": "balanceOf",
                                         "outputs": [{"name": "balance", "type": "uint256"}],
                                         "type": "function"
                                     },
@@ -366,38 +405,40 @@ class SomniaConnector(GatewayBase):
                                     }
                                 ]
 
-                                # Create contract instance
-                                contract = web3.eth.contract(address=Web3.to_checksum_address(token), abi=erc20_abi)
+                                # Create contract instance using the token address
+                                contract = web3.eth.contract(address=Web3.to_checksum_address(token_address), abi=erc20_abi)
 
                                 # Get balance in token units
                                 balance_wei = contract.functions.balanceOf(Web3.to_checksum_address(wallet_address)).call()
 
-                                # Get token decimals
+                                # Get token decimals - use constants first, then contract call
                                 try:
-                                    decimals = contract.functions.decimals().call()
+                                    decimals = SOMNIA_TESTNET_TOKEN_DECIMALS.get(token_symbol)
+                                    if decimals is None:
+                                        decimals = contract.functions.decimals().call()
                                 except Exception:
                                     # Default to 18 decimals if decimals() call fails
                                     decimals = 18
 
                                 # Convert to human readable format
                                 balance = Decimal(balance_wei) / Decimal(10 ** decimals)
-                                balances[token] = balance
-                                self.logger().info(f"✅ ERC20 balance for {token}: {balance} (decimals: {decimals})")
+                                balances[token_symbol] = balance
+                                self.logger().info(f"✅ ERC20 balance for {token_symbol} ({token_address}): {balance} (decimals: {decimals})")
 
                             except Exception as erc20_error:
-                                self.logger().error(f"❌ ERC20 balance error for {token}: {erc20_error}")
-                                balances[token] = Decimal("0")
+                                self.logger().error(f"❌ ERC20 balance error for {token_symbol}: {erc20_error}")
+                                balances[token_symbol] = Decimal("0")
                     else:
                         self.logger().error(f"❌ Cannot connect to RPC: {rpc_url}")
-                        balances[token] = Decimal("0")
+                        balances[token_symbol] = Decimal("0")
 
                 except Exception as web3_error:
-                    self.logger().error(f"Web3 error for {token}: {web3_error}")
-                    balances[token] = Decimal("0")
+                    self.logger().error(f"Web3 error for {token_symbol}: {web3_error}")
+                    balances[token_symbol] = Decimal("0")
 
             except Exception as e:
-                self.logger().error(f"Error fetching balance for {token}: {e}")
-                balances[token] = Decimal("0")
+                self.logger().error(f"Error fetching balance for {token_symbol}: {e}")
+                balances[token_symbol] = Decimal("0")
 
         # Update local balances with REAL values
         self._account_balances = balances
