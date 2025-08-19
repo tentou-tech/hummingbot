@@ -554,6 +554,165 @@ class CriticalFunctionsTest:
 
         return result
 
+    async def test_get_orderbook(self) -> Dict[str, Any]:
+        """Test orderbook retrieval functionality"""
+        logger.info("📚 Testing orderbook retrieval...")
+        logger.info(f"   🎯 Target Pair: {TEST_CONFIG['trading_pair']}")
+
+        result = {
+            "test_name": "Get Orderbook",
+            "status": "UNKNOWN",
+            "details": {},
+            "errors": []
+        }
+
+        try:
+            # Test orderbook retrieval via data source
+            logger.info("🔍 Testing get_new_order_book via data source...")
+            
+            if not hasattr(self.connector, '_data_source'):
+                logger.error("❌ No data source available in connector")
+                result["status"] = "FAILED"
+                result["errors"].append("No data source available in connector")
+                return result
+
+            # Get the orderbook
+            orderbook = await self.connector._data_source.get_new_order_book(TEST_CONFIG["trading_pair"])
+            
+            if orderbook is None:
+                logger.warning("⚠️  Orderbook returned None")
+                result["status"] = "FAILED" 
+                result["errors"].append("Orderbook returned None")
+                return result
+
+            logger.info("✅ Orderbook retrieved successfully!")
+            result["details"]["orderbook_type"] = str(type(orderbook).__name__)
+
+            # Check orderbook structure
+            try:
+                # Test basic orderbook properties
+                logger.info("🔍 Analyzing orderbook structure...")
+                
+                # Get best bid and ask using the correct OrderBook methods
+                best_bid = None
+                best_ask = None
+                
+                # Try using internal properties first
+                if hasattr(orderbook, '_best_bid'):
+                    best_bid = orderbook._best_bid
+                if hasattr(orderbook, '_best_ask'):
+                    best_ask = orderbook._best_ask
+                
+                # If internal properties not available, get from entries
+                if best_bid is None or best_ask is None:
+                    bid_entries = list(orderbook.bid_entries())
+                    ask_entries = list(orderbook.ask_entries())
+                    
+                    if bid_entries and best_bid is None:
+                        best_bid = bid_entries[0].price
+                    if ask_entries and best_ask is None:
+                        best_ask = ask_entries[0].price
+                else:
+                    # Still need entries for counting
+                    bid_entries = list(orderbook.bid_entries())
+                    ask_entries = list(orderbook.ask_entries())
+                
+                logger.info(f"   📈 Best Bid: {best_bid}")
+                logger.info(f"   📉 Best Ask: {best_ask}")
+                
+                result["details"]["best_bid"] = str(best_bid) if best_bid else "None"
+                result["details"]["best_ask"] = str(best_ask) if best_ask else "None"
+                
+                logger.info(f"   📊 Total Bids: {len(bid_entries)}")
+                logger.info(f"   📊 Total Asks: {len(ask_entries)}")
+                
+                result["details"]["total_bids"] = str(len(bid_entries))
+                result["details"]["total_asks"] = str(len(ask_entries))
+
+                # Show top 3 bids and asks if available
+                if bid_entries:
+                    logger.info("   🔝 Top 3 Bids:")
+                    for i, bid in enumerate(bid_entries[:3]):
+                        logger.info(f"      {i+1}. Price: {bid.price}, Amount: {bid.amount}")
+                        result["details"][f"bid_{i+1}"] = f"Price: {bid.price}, Amount: {bid.amount}"
+
+                if ask_entries:
+                    logger.info("   🔝 Top 3 Asks:")
+                    for i, ask in enumerate(ask_entries[:3]):
+                        logger.info(f"      {i+1}. Price: {ask.price}, Amount: {ask.amount}")
+                        result["details"][f"ask_{i+1}"] = f"Price: {ask.price}, Amount: {ask.amount}"
+
+                # Calculate spread if both bids and asks exist
+                if best_bid and best_ask and best_bid > 0 and best_ask > 0:
+                    spread = float(best_ask) - float(best_bid)
+                    spread_pct = (spread / float(best_ask)) * 100
+                    logger.info(f"   📊 Spread: {spread:.6f} ({spread_pct:.2f}%)")
+                    result["details"]["spread"] = f"{spread:.6f}"
+                    result["details"]["spread_pct"] = f"{spread_pct:.2f}%"
+
+                # Test orderbook snapshot UID if available
+                if hasattr(orderbook, 'snapshot_uid'):
+                    logger.info(f"   🔢 Snapshot UID: {orderbook.snapshot_uid}")
+                    result["details"]["snapshot_uid"] = str(orderbook.snapshot_uid)
+
+                # Check if orderbook has any data
+                has_data = len(bid_entries) > 0 or len(ask_entries) > 0
+                if has_data:
+                    logger.info("   ✅ Orderbook contains market data")
+                    result["details"]["has_market_data"] = "true"
+                else:
+                    logger.warning("   ⚠️  Orderbook is empty (no bids or asks)")
+                    result["details"]["has_market_data"] = "false"
+
+            except Exception as orderbook_error:
+                logger.warning(f"⚠️  Error analyzing orderbook structure: {orderbook_error}")
+                result["errors"].append(f"Orderbook analysis error: {str(orderbook_error)}")
+
+            # Test alternative access methods
+            logger.info("🔍 Testing alternative orderbook access...")
+            
+            try:
+                # Test via connector's get_order_price_quote which uses orderbook internally
+                buy_quote = await self.connector.get_order_price_quote(
+                    trading_pair=TEST_CONFIG["trading_pair"],
+                    is_buy=True,
+                    amount=TEST_CONFIG["test_amount"]
+                )
+                sell_quote = await self.connector.get_order_price_quote(
+                    trading_pair=TEST_CONFIG["trading_pair"],
+                    is_buy=False,
+                    amount=TEST_CONFIG["test_amount"]
+                )
+                
+                logger.info(f"   📈 Price quote integration - Buy: {buy_quote}")
+                logger.info(f"   📉 Price quote integration - Sell: {sell_quote}")
+                
+                result["details"]["price_quote_buy"] = str(buy_quote)
+                result["details"]["price_quote_sell"] = str(sell_quote)
+                
+            except Exception as quote_error:
+                logger.warning(f"⚠️  Price quote integration failed: {quote_error}")
+
+            # Test mid-price calculation
+            try:
+                mid_price = self.connector.get_mid_price(TEST_CONFIG["trading_pair"])
+                logger.info(f"   📊 Mid Price: {mid_price}")
+                result["details"]["mid_price"] = str(mid_price) if mid_price else "None"
+            except Exception as mid_error:
+                logger.warning(f"⚠️  Mid price calculation failed: {mid_error}")
+
+            result["status"] = "PASSED"
+            logger.info("✅ Orderbook retrieval test PASSED")
+
+        except Exception as e:
+            logger.error(f"❌ Orderbook retrieval test failed: {e}")
+            logger.error(f"   🔍 Exception type: {type(e).__name__}")
+            logger.error(f"   📝 Exception details: {str(e)}")
+            result["status"] = "FAILED"
+            result["errors"].append(str(e))
+
+        return result
+
     async def run_all_tests(self):
         """Run all critical function tests"""
         logger.info("🚀 Starting Critical Functions Test Suite")
@@ -569,6 +728,7 @@ class CriticalFunctionsTest:
             self.test_balance_checking,
             self.test_fee_calculation,
             self.test_price_quotes,
+            self.test_get_orderbook,
             self.test_order_placement,
             self.test_order_cancellation
         ]
@@ -736,6 +896,18 @@ class CriticalFunctionsTest:
                     logger.info(f"   💵 Buy: {buy_price}")
                     logger.info(f"   💵 Sell: {sell_price}")
                     logger.info(f"   💵 Mid: {mid_price}")
+                elif test_name == "Get Orderbook":
+                    total_bids = details.get("total_bids", "0")
+                    total_asks = details.get("total_asks", "0")
+                    best_bid = details.get("best_bid", "N/A")
+                    best_ask = details.get("best_ask", "N/A")
+                    has_data = details.get("has_market_data", "false")
+                    logger.info(f"   📊 Bids: {total_bids}, Asks: {total_asks}")
+                    logger.info(f"   💰 Best Bid: {best_bid}")
+                    logger.info(f"   💰 Best Ask: {best_ask}")
+                    logger.info(f"   📈 Has Data: {has_data}")
+                    if details.get("spread_pct"):
+                        logger.info(f"   📊 Spread: {details.get('spread_pct')}")
 
             elif status == "FAILED":
                 logger.error(f"❌ {test_name}: FAILED")
