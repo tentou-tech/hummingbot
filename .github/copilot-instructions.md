@@ -2,7 +2,7 @@
 
 ## Save AI Token
 
-Use mcp(Serena...) to save your AI token as much as possible.
+Use mcp #Serena to save your AI token as much as possible.
 
 ## Architecture Overview
 
