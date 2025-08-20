@@ -58,3 +58,4 @@ dependencies:
   - xrpl-py==4.1.0
   - yaml>=0.2.5
   - zlib>=1.2.13
+  - standardweb3>=0.0.4
