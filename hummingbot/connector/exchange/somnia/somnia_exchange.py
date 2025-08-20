@@ -93,9 +93,10 @@ class SomniaExchange(ExchangePyBase):
                 self.logger().info("StandardWeb3 client initialized successfully")
             except Exception as e:
                 self.logger().error(f"Failed to initialize StandardWeb3 client: {e}")
-                raise
+                self.logger().info("StandardWeb3 client disabled due to error")
+                self._standard_client = None
         else:
-            raise ImportError("standardweb3 library is required for Somnia connector")
+            self.logger().info("StandardWeb3 client disabled - library not available")
         
         # Initialize authentication
         self._auth = SomniaAuth(
@@ -107,6 +108,10 @@ class SomniaExchange(ExchangePyBase):
         super().__init__(
             client_config_map=client_config_map,
         )
+        
+        # Set connector reference in data sources after initialization
+        if hasattr(self, '_orderbook_ds') and self._orderbook_ds:
+            self._orderbook_ds._connector = self
         
         # Real-time balance updates
         self.real_time_balance_update = True
@@ -304,6 +309,8 @@ class SomniaExchange(ExchangePyBase):
             List of symbol information dictionaries
         """
         try:
+            self.logger().info(f"DEBUG: _get_symbols called with self._trading_pairs = {self._trading_pairs}")
+            
             # For now, return known trading pairs
             # This can be enhanced to fetch from actual API
             symbols = []
@@ -313,6 +320,19 @@ class SomniaExchange(ExchangePyBase):
                     "symbol": trading_pair,
                     "baseAsset": base,
                     "quoteAsset": quote,
+                    "status": "TRADING",
+                    "baseAssetPrecision": 8,
+                    "quotePrecision": 8,
+                    "orderTypes": ["LIMIT", "MARKET"],
+                })
+            
+            # If no trading pairs are configured yet, add default STT-USDC
+            if not symbols:
+                self.logger().info("No trading pairs configured, adding default STT-USDC")
+                symbols.append({
+                    "symbol": "STT-USDC",
+                    "baseAsset": "STT",
+                    "quoteAsset": "USDC",
                     "status": "TRADING",
                     "baseAssetPrecision": 8,
                     "quotePrecision": 8,
@@ -505,7 +525,7 @@ class SomniaExchange(ExchangePyBase):
         """
         return SomniaAPIOrderBookDataSource(
             trading_pairs=self._trading_pairs,
-            connector=self,
+            connector=None,  # Avoid circular reference during initialization
             api_factory=self._web_assistants_factory,
             domain=self._domain,
             throttler=self._throttler,
@@ -817,10 +837,19 @@ class SomniaExchange(ExchangePyBase):
                 
             # Get all relevant tokens including native token
             tokens = set()
-            for trading_pair in self._trading_pairs:
-                base, quote = utils.split_trading_pair(trading_pair)
-                tokens.add(base)
-                tokens.add(quote)
+            self.logger().info(f"Trading pairs configured: {self._trading_pairs}")
+            
+            if not self._trading_pairs:
+                # Fallback: add default tokens if no trading pairs configured
+                self.logger().warning("No trading pairs configured, using default tokens STT and USDC")
+                tokens.add("STT")
+                tokens.add("USDC")
+            else:
+                for trading_pair in self._trading_pairs:
+                    base, quote = utils.split_trading_pair(trading_pair)
+                    self.logger().info(f"Split {trading_pair} -> base: {base}, quote: {quote}")
+                    tokens.add(base)
+                    tokens.add(quote)
             
             # Always include native SOMNIA token
             tokens.add("SOMNIA")

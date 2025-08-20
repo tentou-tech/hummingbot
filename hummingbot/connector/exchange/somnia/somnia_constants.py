@@ -10,13 +10,16 @@ DEFAULT_DOMAIN = "mainnet"  # or "testnet"
 # Network configuration
 SOMNIA_CHAIN_ID = 50312
 SOMNIA_RPC_URL = os.getenv("SOMNIA_RPC_URL", "https://dream-rpc.somnia.network")
-SOMNIA_GRAPHQL_ENDPOINT = os.getenv("SOMNIA_GRAPHQL_ENDPOINT", "https://haifu-release-api.up.railway.app/graphql")
+SOMNIA_GRAPHQL_ENDPOINT = os.getenv("SOMNIA_GRAPHQL_ENDPOINT", "https://somnia-testnet-ponder-release.standardweb3.com")
 SOMNIA_WEBSOCKET_URL = os.getenv("SOMNIA_WEBSOCKET_URL", "wss://ws3-somnia-testnet-ponder-release.standardweb3.com")
 
 # Standard Exchange protocol endpoints
 STANDARD_EXCHANGE_ADDRESS = "0x0d3251EF0D66b60C4E387FC95462Bf274e50CBE1"
 STANDARD_API_URL = os.getenv("SOMNIA_STANDARD_API_URL", "https://somnia-testnet-ponder-release.standardweb3.com/")
 STANDARD_WEBSOCKET_URL = os.getenv("SOMNIA_STANDARD_WEBSOCKET_URL", "https://ws1-somnia-testnet-websocket-release.standardweb3.com/")
+
+# REST API base URL
+REST_API_BASE_URL = "https://somnia-testnet-ponder-release.standardweb3.com"
 
 # GraphQL and REST API endpoints  
 GRAPHQL_API_URL = os.getenv("SOMNIA_GRAPHQL_API_URL", "https://somnia-testnet-ponder-release.standardweb3.com/")
@@ -84,77 +87,30 @@ TOKEN_DECIMALS = {
     "TOKEN2": 18,
 }
 
-# GraphQL queries
-GRAPHQL_QUERIES = {
-    "orderbook": """
-    query getOrderbook($baseCurrency: String!, $quoteCurrency: String!, $skip: Int!, $first: Int!) {
-      sellOrders: orders(
-        where: {baseToken: $baseCurrency, quoteToken: $quoteCurrency, isFilled: false, isCancelled: false, side: 1}
-        orderBy: price
-        orderDirection: asc
-        skip: $skip
-        first: $first
-      ) {
-        id
-        price
-        baseAmount
-        quoteAmount
-        side
-      }
-      buyOrders: orders(
-        where: {baseToken: $baseCurrency, quoteToken: $quoteCurrency, isFilled: false, isCancelled: false, side: 0}
-        orderBy: price
-        orderDirection: desc
-        skip: $skip
-        first: $first
-      ) {
-        id
-        price
-        baseAmount
-        quoteAmount
-        side
-      }
-    }
-    """,
-    
-    "recent_trades": """
-    query getRecentTrades($baseCurrency: String!, $quoteCurrency: String!, $skip: Int!, $first: Int!) {
-      trades(
-        where: {baseToken: $baseCurrency, quoteToken: $quoteCurrency}
-        orderBy: timestamp
-        orderDirection: desc
-        skip: $skip
-        first: $first
-      ) {
-        id
-        order {
-          id
-          side
-        }
-        baseToken {
-          symbol
-        }
-        quoteToken {
-          symbol
-        }
-        baseAmount
-        quoteAmount
-        price
-        timestamp
-      }
-    }
-    """,
-    
-    "tokens": """
-    query tokens($first: Int!, $skip: Int!) {
-      tokens(first: $first, skip: $skip, orderBy: tradeVolumeUSD, orderDirection: desc) {
-        id
-        symbol
-        name
-        decimals
-      }
-    }
-    """
+# REST API endpoints (replacing GraphQL)
+REST_API_ENDPOINTS = {
+    "orderbook_ticks": "/api/orderbook/ticks/{base}/{quote}/{limit}",
+    "orderbook_blocks": "/api/orderbook/blocks/{base}/{quote}/{step}/{depth}/{isSingle}",
+    "trades_pair": "/api/trades/pair/{base}/{quote}/{pageSize}/{page}",
+    "token_by_address": "/api/token/{address}",
+    "token_by_symbol": "/api/token/symbol/{symbol}",
+    "tokens_list": "/api/tokens/{pageSize}/{page}",
+    "pair_by_addresses": "/api/pair/{base}/{quote}",
+    "pair_by_symbols": "/api/pair/symbol/{baseSymbol}/{quoteSymbol}",
+    "pairs_list": "/api/pairs/{pageSize}/{page}",
+    "account_orders": "/api/orders/{address}/{pageSize}/{page}",
+    "account_trades": "/api/tradehistory/{address}/{pageSize}/{page}",
+    "recent_trades": "/api/trades/latest"
+}
+
+# Default parameters for API calls
+API_DEFAULTS = {
+    "orderbook_limit": 100,
+    "orderbook_step": 1,
+    "orderbook_depth": 20,
+    "orderbook_single": False,
+    "page_size": 50,
+    "max_trades": 100
 }
 
 # WebSocket message types

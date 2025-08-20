@@ -59,9 +59,8 @@ class SomniaAPIUserStreamDataSource(UserStreamTrackerDataSource):
         Somnia currently relies on periodic REST API calls for user data updates.
         """
         self.logger().info("Somnia user stream disabled - using REST API polling for user data updates.")
-        # Keep the task alive but don't do any WebSocket operations
-        while True:
-            await asyncio.sleep(60)  # Sleep for 1 minute between status checks
+        # Just return - no WebSocket subscriptions needed for REST-based connector
+        return
 
     async def _connected_websocket_assistant(self):
         """

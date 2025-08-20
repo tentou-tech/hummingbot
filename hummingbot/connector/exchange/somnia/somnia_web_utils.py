@@ -35,13 +35,14 @@ RATE_LIMITS = [
 ]
 
 
-def public_rest_url(path_url: str, domain: str = CONSTANTS.DEFAULT_DOMAIN) -> str:
+def public_rest_url(path_url: str, domain: str = CONSTANTS.DEFAULT_DOMAIN, **kwargs) -> str:
     """
     Creates a full URL for provided public REST endpoint.
     
     Args:
-        path_url: A public REST endpoint
+        path_url: A public REST endpoint or endpoint key
         domain: The Somnia domain to connect to
+        **kwargs: Additional parameters for URL formatting
         
     Returns:
         The full URL to the endpoint
@@ -49,12 +50,19 @@ def public_rest_url(path_url: str, domain: str = CONSTANTS.DEFAULT_DOMAIN) -> st
     if path_url.startswith("http"):
         return path_url
     
-    # For GraphQL endpoints
-    if "graphql" in path_url.lower():
-        return CONSTANTS.SOMNIA_GRAPHQL_ENDPOINT
+    # Check if path_url is a key in REST_API_ENDPOINTS
+    if hasattr(CONSTANTS, 'REST_API_ENDPOINTS') and path_url in CONSTANTS.REST_API_ENDPOINTS:
+        endpoint_template = CONSTANTS.REST_API_ENDPOINTS[path_url]
+        # Format the template with provided kwargs
+        formatted_endpoint = endpoint_template.format(**kwargs)
+        return CONSTANTS.REST_API_BASE_URL + formatted_endpoint
     
-    # For other API endpoints, we might add a base URL later
-    return CONSTANTS.SOMNIA_GRAPHQL_ENDPOINT + path_url
+    # For GraphQL endpoints (legacy support)
+    if "graphql" in path_url.lower():
+        return CONSTANTS.SOMNIA_GRAPHQL_ENDPOINT + "/graphql"
+    
+    # For other API endpoints
+    return CONSTANTS.REST_API_BASE_URL + "/" + path_url.lstrip("/")
 
 
 def private_rest_url(path_url: str, domain: str = CONSTANTS.DEFAULT_DOMAIN) -> str:
