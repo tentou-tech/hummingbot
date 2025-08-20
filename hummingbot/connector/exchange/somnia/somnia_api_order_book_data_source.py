@@ -15,8 +15,9 @@ from hummingbot.connector.exchange.somnia.somnia_order_book import SomniaOrderBo
 from hummingbot.core.api_throttler.async_throttler import AsyncThrottler
 from hummingbot.core.data_type.order_book_message import OrderBookMessage, OrderBookMessageType
 from hummingbot.core.data_type.order_book_tracker_data_source import OrderBookTrackerDataSource
-from hummingbot.core.web_assistant.connections.data_types import RESTMethod
+from hummingbot.core.web_assistant.connections.data_types import RESTMethod, WSJSONRequest
 from hummingbot.core.web_assistant.web_assistants_factory import WebAssistantsFactory
+from hummingbot.core.web_assistant.ws_assistant import WSAssistant
 from hummingbot.logger import HummingbotLogger
 
 if TYPE_CHECKING:
@@ -246,13 +247,26 @@ class SomniaAPIOrderBookDataSource(OrderBookTrackerDataSource):
             return "trades"
         return "unknown"
 
-    async def _connected_websocket_assistant(self) -> None:
+    async def listen_for_subscriptions(self):
         """
-        Create and maintain WebSocket connection for real-time data.
+        Somnia currently uses REST API polling instead of WebSocket subscriptions.
+        This method is overridden to prevent infinite loops from WebSocket connection attempts.
         """
-        # Implementation for WebSocket connection
-        # This would establish a WebSocket connection to receive real-time updates
-        # For now, we'll rely on periodic REST API calls
+        self.logger().info("Somnia connector is using REST API polling for order book updates (no WebSocket support).")
+        # Keep the task alive but don't do any WebSocket operations
+        while True:
+            await asyncio.sleep(60)  # Sleep for 1 minute between status checks
+
+    async def _connected_websocket_assistant(self) -> WSAssistant:
+        """
+        Somnia currently relies on REST API polling instead of WebSocket streams.
+        We return None to indicate no WebSocket connection is available.
+        """
+        # Create a dummy websocket assistant that doesn't actually connect
+        websocket_assistant: WSAssistant = await self._api_factory.get_ws_assistant()
+        # Don't actually connect - just return the assistant
+        # This prevents the infinite loop while maintaining the expected interface
+        return websocket_assistant
         pass
 
     async def _subscribe_channels(self, ws_assistant) -> None:

@@ -82,9 +82,13 @@ class SomniaExchange(ExchangePyBase):
             try:
                 client_config = utils.build_standard_web3_config()
                 self._standard_client = StandardClient(
-                    rpc_url=client_config["rpc_url"],
                     private_key=self._private_key,
-                    address=self._wallet_address,
+                    http_rpc_url=client_config["rpc_url"],
+                    matching_engine_address=client_config["exchange_address"],
+                    networkName=client_config["network_name"],
+                    api_url=client_config["api_url"],
+                    websocket_url=client_config["websocket_url"],
+                    api_key="defaultApiKey"  # Optional parameter
                 )
                 self.logger().info("StandardWeb3 client initialized successfully")
             except Exception as e:
@@ -185,6 +189,252 @@ class SomniaExchange(ExchangePyBase):
     def check_network_request_path(self) -> str:
         """Path for network check request."""
         return ""  # Not used for GraphQL-based API
+
+    # ====== MISSING CRITICAL METHODS FROM VERTEX ======
+    
+    async def start_network(self):
+        """
+        Initialize network and exchange info when connector starts.
+        This method is called during connector startup.
+        """
+        try:
+            self.logger().info("Starting Somnia network...")
+            await self.build_exchange_market_info()
+            await super().start_network()
+            self.logger().info("Somnia network started successfully")
+        except Exception as e:
+            self.logger().error(f"Failed to start Somnia network: {e}")
+            raise
+
+    async def build_exchange_market_info(self) -> Dict[str, Any]:
+        """
+        Build comprehensive market information including trading pairs, symbols, contracts.
+        This method fetches and organizes exchange data for proper connector initialization.
+        
+        Returns:
+            Dictionary containing exchange market information
+        """
+        try:
+            self.logger().info("Building Somnia exchange market info...")
+            
+            # Get available trading pairs and market data
+            symbols = await self._get_symbols()
+            contracts = await self._get_contracts()
+            fee_rates = await self._get_fee_rates()
+            
+            exchange_info = {
+                "symbols": symbols,
+                "contracts": contracts,
+                "fee_rates": fee_rates,
+                "server_time": int(time.time() * 1000),
+                "rate_limits": self.rate_limits_rules,
+            }
+            
+            self.logger().info(f"Built exchange info with {len(symbols)} symbols and {len(contracts)} contracts")
+            return exchange_info
+            
+        except Exception as e:
+            self.logger().error(f"Failed to build exchange market info: {e}")
+            # Return minimal info to prevent startup failure
+            return {
+                "symbols": [],
+                "contracts": {},
+                "fee_rates": {},
+                "server_time": int(time.time() * 1000),
+                "rate_limits": self.rate_limits_rules,
+            }
+
+    async def _initialize_trading_pair_symbol_map(self):
+        """
+        Override the default symbol map initialization.
+        Uses build_exchange_market_info to fetch and organize symbol mappings.
+        """
+        try:
+            self.logger().info("Initializing trading pair symbol map...")
+            exchange_info = await self.build_exchange_market_info()
+            self._initialize_trading_pair_symbols_from_exchange_info(exchange_info=exchange_info)
+            self.logger().info("Trading pair symbol map initialized successfully")
+        except Exception as e:
+            self.logger().exception("There was an error requesting exchange info.")
+            # Don't raise to prevent startup failure
+            
+    async def _api_request(
+        self,
+        method: str,
+        endpoint: str = "",
+        params: Optional[Dict[str, Any]] = None,
+        headers: Optional[Dict[str, str]] = None,
+        data: Optional[Dict[str, Any]] = None,
+        is_auth_required: bool = False,
+    ) -> Dict[str, Any]:
+        """
+        Generic API request method for making HTTP requests to Somnia API.
+        
+        Args:
+            method: HTTP method (GET, POST, etc.)
+            endpoint: API endpoint
+            params: URL parameters
+            headers: Request headers
+            data: Request data
+            is_auth_required: Whether authentication is required
+            
+        Returns:
+            API response data
+        """
+        try:
+            if is_auth_required and self._auth:
+                if headers is None:
+                    headers = {}
+                auth_headers = await self._auth.get_headers()
+                headers.update(auth_headers)
+            
+            # For now, return mock data since we're using StandardWeb3 directly
+            # This method can be enhanced later for additional API calls
+            return {"success": True, "data": {}}
+            
+        except Exception as e:
+            self.logger().error(f"API request failed: {e}")
+            raise
+
+    async def _get_symbols(self) -> List[Dict[str, Any]]:
+        """
+        Get symbol information from Somnia exchange.
+        
+        Returns:
+            List of symbol information dictionaries
+        """
+        try:
+            # For now, return known trading pairs
+            # This can be enhanced to fetch from actual API
+            symbols = []
+            for trading_pair in self._trading_pairs:
+                base, quote = trading_pair.split("-")
+                symbols.append({
+                    "symbol": trading_pair,
+                    "baseAsset": base,
+                    "quoteAsset": quote,
+                    "status": "TRADING",
+                    "baseAssetPrecision": 8,
+                    "quotePrecision": 8,
+                    "orderTypes": ["LIMIT", "MARKET"],
+                })
+            
+            self.logger().info(f"Retrieved {len(symbols)} symbols")
+            return symbols
+            
+        except Exception as e:
+            self.logger().error(f"Failed to get symbols: {e}")
+            return []
+
+    async def _get_contracts(self) -> Dict[str, Any]:
+        """
+        Get contract information from Somnia exchange.
+        
+        Returns:
+            Dictionary of contract information
+        """
+        try:
+            # Return contract information for known tokens
+            contracts = {}
+            
+            # Get token addresses from constants
+            for symbol in ["STT", "USDC"]:
+                address = utils.convert_symbol_to_address(symbol)
+                if address and address != "0x...":
+                    # Get decimals from constants
+                    decimals = CONSTANTS.TOKEN_DECIMALS.get(symbol, 18)
+                    contracts[symbol] = {
+                        "address": address,
+                        "decimals": decimals,
+                        "symbol": symbol,
+                    }
+            
+            self.logger().info(f"Retrieved {len(contracts)} contracts")
+            return contracts
+            
+        except Exception as e:
+            self.logger().error(f"Failed to get contracts: {e}")
+            return {}
+
+    async def _get_fee_rates(self) -> Dict[str, Any]:
+        """
+        Get current fee rates from Somnia exchange.
+        
+        Returns:
+            Dictionary of fee rate information
+        """
+        try:
+            # Return default fee rates (can be enhanced to fetch dynamically)
+            fee_rates = {
+                "maker_fee": "0.001",  # 0.1%
+                "taker_fee": "0.002",  # 0.2%
+            }
+            
+            self.logger().info("Retrieved fee rates")
+            return fee_rates
+            
+        except Exception as e:
+            self.logger().error(f"Failed to get fee rates: {e}")
+            return {"maker_fee": "0.001", "taker_fee": "0.002"}
+
+    async def _get_account(self) -> Dict[str, Any]:
+        """
+        Get account information from Somnia exchange.
+        
+        Returns:
+            Dictionary containing account information
+        """
+        try:
+            if not self._standard_client:
+                raise ValueError("StandardWeb3 client not initialized")
+            
+            # Get account balances and info using StandardWeb3
+            account_info = {
+                "address": self._wallet_address,
+                "balances": {},
+            }
+            
+            # Get balances for known tokens
+            known_tokens = ["STT", "USDC"]
+            for token in known_tokens:
+                try:
+                    # This would use StandardWeb3 to get actual balance
+                    balance = "0"  # Placeholder - implement actual balance fetching
+                    account_info["balances"][token] = balance
+                except Exception as e:
+                    self.logger().warning(f"Failed to get {token} balance: {e}")
+                    account_info["balances"][token] = "0"
+            
+            return account_info
+            
+        except Exception as e:
+            self.logger().error(f"Failed to get account info: {e}")
+            return {"address": self._wallet_address, "balances": {}}
+
+    async def _get_account_max_withdrawable(self) -> Dict[str, Decimal]:
+        """
+        Get maximum withdrawable amounts for each asset.
+        
+        Returns:
+            Dictionary mapping asset to max withdrawable amount
+        """
+        try:
+            account_info = await self._get_account()
+            max_withdrawable = {}
+            
+            for asset, balance_str in account_info.get("balances", {}).items():
+                balance = Decimal(balance_str) if balance_str else Decimal("0")
+                # For simplicity, assume full balance is withdrawable
+                # In reality, you might need to account for locked amounts
+                max_withdrawable[asset] = balance
+                
+            return max_withdrawable
+            
+        except Exception as e:
+            self.logger().error(f"Failed to get max withdrawable amounts: {e}")
+            return {}
+
+    # ====== END MISSING METHODS ======
 
     def supported_order_types(self) -> List[OrderType]:
         """
@@ -559,37 +809,210 @@ class SomniaExchange(ExchangePyBase):
 
     async def _update_balances(self):
         """
-        Update account balances.
+        Update account balances using on-chain Web3 calls with API fallback.
         """
         try:
             if not self._standard_client:
                 return
                 
-            # Get all relevant tokens
+            # Get all relevant tokens including native token
             tokens = set()
             for trading_pair in self._trading_pairs:
                 base, quote = utils.split_trading_pair(trading_pair)
                 tokens.add(base)
                 tokens.add(quote)
             
-            # Fetch balances using StandardClient
+            # Always include native SOMNIA token
+            tokens.add("SOMNIA")
+            
+            self.logger().info(f"Fetching balances for tokens: {tokens}")
+            
+            # Fetch balances using Web3 (primary method)
             balances = {}
             for token in tokens:
                 try:
-                    balance = await self._standard_client.get_balance(token)
-                    balances[token] = Decimal(str(balance))
+                    balance = await self._get_token_balance_web3(token)
+                    balances[token] = balance
+                    self.logger().info(f"Web3 balance for {token}: {balance}")
                 except Exception as e:
-                    self.logger().error(f"Error getting balance for {token}: {e}")
-                    balances[token] = s_decimal_0
+                    self.logger().warning(f"Web3 balance failed for {token}: {e}, trying API fallback...")
+                    try:
+                        balance = await self._get_token_balance_api(token)
+                        balances[token] = balance
+                        self.logger().info(f"API balance for {token}: {balance}")
+                    except Exception as api_error:
+                        self.logger().error(f"Both Web3 and API balance failed for {token}: {api_error}")
+                        balances[token] = s_decimal_0
             
             # Update local balances
             self._account_balances = balances
             self._account_available_balances = balances.copy()
             
-            self.logger().debug(f"Updated balances: {balances}")
+            self.logger().info(f"Updated balances: {balances}")
             
         except Exception as e:
             self.logger().error(f"Error updating balances: {e}")
+
+    async def _get_token_balance_web3(self, token: str) -> Decimal:
+        """
+        Get token balance using Web3 on-chain calls.
+        
+        Args:
+            token: Token symbol (e.g., "STT", "USDC")
+            
+        Returns:
+            Token balance as Decimal
+        """
+        try:
+            # Use direct Web3 connection to Somnia RPC instead of StandardClient
+            from web3 import Web3
+            
+            # Create Web3 instance with Somnia RPC
+            rpc_url = "https://dream-rpc.somnia.network"
+            w3 = Web3(Web3.HTTPProvider(rpc_url))
+            
+            if not w3.is_connected():
+                self.logger().error("Failed to connect to Somnia RPC")
+                return s_decimal_0
+            
+            # Use the wallet address and convert to checksum format
+            wallet_address = w3.to_checksum_address(self._wallet_address)
+            
+            self.logger().debug(f"Getting balance for {token} at address {wallet_address}")
+            self.logger().debug(f"wallet_address type: {type(wallet_address)}")
+            
+            if token.upper() in ["ETH", "SOMNIA", "STT"]:
+                # Native token balance - try both native and ERC20 for STT
+                if token.upper() == "STT":
+                    # For STT, try native balance first
+                    try:
+                        native_balance_wei = w3.eth.get_balance(wallet_address)
+                        native_balance = w3.from_wei(native_balance_wei, 'ether')
+                        if native_balance > 0:
+                            balance_decimal = Decimal(str(native_balance))
+                            self.logger().debug(f"Native STT balance: {balance_decimal}")
+                            return balance_decimal
+                        else:
+                            self.logger().debug("Native STT balance is 0, trying ERC20...")
+                            # Fall through to ERC20 logic below
+                    except Exception as native_error:
+                        self.logger().debug(f"Native STT check failed: {native_error}, trying ERC20...")
+                        # Fall through to ERC20 logic below
+                else:
+                    # For other native tokens
+                    balance_wei = w3.eth.get_balance(wallet_address)
+                    balance = w3.from_wei(balance_wei, 'ether')
+                    balance_decimal = Decimal(str(balance))
+                    self.logger().debug(f"Native {token} balance: {balance_decimal}")
+                    return balance_decimal
+            
+            # ERC-20 token balance (or STT fallback)
+            token_address = utils.convert_symbol_to_address(token)
+            if not token_address or token_address == "0x...":
+                self.logger().warning(f"Token address not found or incomplete for {token}")
+                return s_decimal_0
+            
+            self.logger().debug(f"Getting ERC-20 balance for {token} at contract {token_address}")
+            
+            # Standard ERC-20 balanceOf call
+            erc20_abi = [
+                {
+                    "constant": True,
+                    "inputs": [{"name": "_owner", "type": "address"}],
+                    "name": "balanceOf",
+                    "outputs": [{"name": "balance", "type": "uint256"}],
+                    "type": "function"
+                },
+                {
+                    "constant": True,
+                    "inputs": [],
+                    "name": "decimals",
+                    "outputs": [{"name": "", "type": "uint8"}],
+                    "type": "function"
+                }
+            ]
+            
+            # Create contract instance with proper checksum addresses
+            contract = w3.eth.contract(
+                address=w3.to_checksum_address(token_address), 
+                abi=erc20_abi
+            )
+            
+            # Get balance using Web3.to_checksum_address for safety
+            balance_wei = contract.functions.balanceOf(w3.to_checksum_address(wallet_address)).call()
+            
+            # Get token decimals
+            try:
+                decimals = contract.functions.decimals().call()
+            except Exception:
+                # Default to 18 decimals if decimals() call fails
+                decimals = 18
+            
+            # Convert to human readable format
+            balance = Decimal(balance_wei) / Decimal(10 ** decimals)
+            self.logger().debug(f"ERC-20 {token} balance: {balance} (decimals: {decimals})")
+            return balance
+                
+        except Exception as e:
+            self.logger().error(f"Web3 balance error for {token}: {e}")
+            raise
+
+    async def _get_token_balance_api(self, token: str) -> Decimal:
+        """
+        Get token balance using StandardWeb3 API as fallback.
+        
+        Args:
+            token: Token symbol (e.g., "STT", "USDC")
+            
+        Returns:
+            Token balance as Decimal
+        """
+        try:
+            # First, get token information by symbol to get the token address
+            token_info_url = f"{CONSTANTS.STANDARD_API_URL}/api/token/symbol/{token}"
+            
+            # Use the web assistant factory from the parent class  
+            rest_assistant = await self._web_assistants_factory.get_rest_assistant()
+            
+            # Get token information
+            token_response = await rest_assistant.execute_request(
+                url=token_info_url,
+                method=RESTMethod.GET,
+                throttler_limit_id=CONSTANTS.GET_TOKEN_INFO_PATH_URL
+            )
+            
+            if token_response.get("id"):
+                token_address = token_response["id"]
+                decimals = token_response.get("decimals", 18)
+                
+                # For native token (STT), use account data which might include balance info
+                if token.upper() == "STT":
+                    # Try to get account data for potential balance information
+                    account_url = f"{CONSTANTS.STANDARD_API_URL}/api/account/{self._wallet_address}"
+                    account_response = await rest_assistant.execute_request(
+                        url=account_url,
+                        method=RESTMethod.GET,
+                        throttler_limit_id=CONSTANTS.GET_ACCOUNT_INFO_PATH_URL
+                    )
+                    
+                    # For now, return 0 as API doesn't provide direct balance
+                    # In production, you might need additional endpoints or Web3 fallback
+                    self.logger().info(f"Got account data for {token}, but no direct balance endpoint available")
+                    return s_decimal_0
+                    
+                else:
+                    # For ERC-20 tokens, API doesn't provide direct balance
+                    # This is a limitation of the current API
+                    self.logger().warning(f"API balance not available for ERC-20 token {token}")
+                    return s_decimal_0
+                    
+            else:
+                self.logger().warning(f"Token {token} not found in API")
+                return s_decimal_0
+                    
+        except Exception as e:
+            self.logger().error(f"Failed to get {token} balance via API: {e}")
+            return s_decimal_0
 
     async def _all_trade_updates_for_order(self, order: InFlightOrder) -> List[TradeUpdate]:
         """

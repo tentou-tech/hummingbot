@@ -53,6 +53,16 @@ class SomniaAPIUserStreamDataSource(UserStreamTrackerDataSource):
         )
         self._last_recv_time: float = 0
 
+    async def listen_for_user_stream(self, output: asyncio.Queue):
+        """
+        Override to disable WebSocket user stream functionality.
+        Somnia currently relies on periodic REST API calls for user data updates.
+        """
+        self.logger().info("Somnia user stream disabled - using REST API polling for user data updates.")
+        # Keep the task alive but don't do any WebSocket operations
+        while True:
+            await asyncio.sleep(60)  # Sleep for 1 minute between status checks
+
     async def _connected_websocket_assistant(self):
         """
         Create and maintain WebSocket connection for user stream data.

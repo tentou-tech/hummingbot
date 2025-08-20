@@ -311,11 +311,16 @@ def build_standard_web3_config() -> Dict:
     from .somnia_constants import (
         SOMNIA_CHAIN_ID,
         SOMNIA_RPC_URL,
-        STANDARD_EXCHANGE_ADDRESS
+        STANDARD_EXCHANGE_ADDRESS,
+        STANDARD_API_URL,
+        STANDARD_WEBSOCKET_URL
     )
     
     return {
         "chain_id": SOMNIA_CHAIN_ID,
         "rpc_url": SOMNIA_RPC_URL,
         "exchange_address": STANDARD_EXCHANGE_ADDRESS,
+        "api_url": STANDARD_API_URL,
+        "websocket_url": STANDARD_WEBSOCKET_URL,
+        "network_name": "Somnia Testnet",  # Must match StandardWeb3's supported network names
     }

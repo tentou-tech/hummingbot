@@ -15,6 +15,13 @@ SOMNIA_WEBSOCKET_URL = os.getenv("SOMNIA_WEBSOCKET_URL", "wss://ws3-somnia-testn
 
 # Standard Exchange protocol endpoints
 STANDARD_EXCHANGE_ADDRESS = "0x0d3251EF0D66b60C4E387FC95462Bf274e50CBE1"
+STANDARD_API_URL = os.getenv("SOMNIA_STANDARD_API_URL", "https://somnia-testnet-ponder-release.standardweb3.com/")
+STANDARD_WEBSOCKET_URL = os.getenv("SOMNIA_STANDARD_WEBSOCKET_URL", "https://ws1-somnia-testnet-websocket-release.standardweb3.com/")
+
+# GraphQL and REST API endpoints  
+GRAPHQL_API_URL = os.getenv("SOMNIA_GRAPHQL_API_URL", "https://somnia-testnet-ponder-release.standardweb3.com/")
+BALANCE_API_ENDPOINT = "/api/balance"  # For balance queries
+MATCH_HISTORY_API_ENDPOINT = "/api/matchhistory"  # For order history
 
 # API Endpoints
 REST_API_VERSION = "v1"
@@ -23,6 +30,12 @@ WS_API_VERSION = "v1"
 # Rate limits (requests per second)
 MAX_REQUESTS_PER_SECOND = 10
 MAX_WS_CONNECTIONS = 5
+
+# Throttler limit IDs for API endpoints
+GET_TOKEN_INFO_PATH_URL = "GET_TOKEN_INFO"
+GET_ACCOUNT_INFO_PATH_URL = "GET_ACCOUNT_INFO"
+GET_ORDERBOOK_PATH_URL = "GET_ORDERBOOK"
+GET_PAIRS_PATH_URL = "GET_PAIRS"
 
 # Order limits
 MIN_ORDER_SIZE = 0.001
