@@ -29,6 +29,7 @@ from hummingbot.core.event.events import (
 )
 from hummingbot.core.utils.async_utils import safe_ensure_future
 from hummingbot.logger import HummingbotLogger
+from hummingbot.core.data_type.order_book import OrderBook
 
 from .somnia_api_wrapper import SomniaAPIWrapper
 from .somnia_constants import (
@@ -249,6 +250,60 @@ class SomniaConnector(GatewayBase):
         # (StandardClient might have its own cleanup methods)
 
         self.logger().info("Somnia connector network stopped.")
+
+    @property
+    def trading_ready(self) -> bool:
+        """
+        Return True if the connector is ready for trading
+        """
+        try:
+            # Check if we have:
+            # 1. Network connection
+            # 2. Account balances loaded
+            # 3. StandardClient initialized
+            return (
+                self.network_status == NetworkStatus.CONNECTED and
+                hasattr(self, '_standard_client') and self._standard_client is not None and
+                hasattr(self, '_account_balances') and self._account_balances is not None
+            )
+        except Exception:
+            return False
+
+    @property 
+    def status(self) -> str:
+        """
+        Return a status string for the connector
+        """
+        if not self.ready:
+            return "Not connected"
+        elif not self.trading_ready:
+            return "Connected but not ready for trading"
+        else:
+            return "Ready"
+
+    def get_order_book(self, trading_pair: str) -> Optional[OrderBook]:
+        """
+        Get order book for a trading pair
+        
+        Returns:
+            OrderBook instance or None if not available
+        """
+        try:
+            # Check if we have a cached order book from mid_price calculations
+            if hasattr(self, '_cached_order_books') and trading_pair in self._cached_order_books:
+                cached_ob, timestamp = self._cached_order_books[trading_pair]
+                # Use cached order book if it's less than 30 seconds old
+                if time.time() - timestamp < 30:
+                    return cached_ob
+            
+            # For now, return None - PMM will use get_mid_price instead
+            # In a full implementation, we'd maintain a proper order book tracker
+            self.logger().debug(f"Order book requested for {trading_pair} but no cached version available")
+            return None
+            
+        except Exception as e:
+            self.logger().warning(f"Could not get order book for {trading_pair}: {e}")
+            return None
 
     def _setup_standard_client_listeners(self):
         """Setup event listeners for StandardClient events"""
