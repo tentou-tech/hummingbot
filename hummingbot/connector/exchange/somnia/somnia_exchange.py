@@ -129,11 +129,19 @@ class SomniaExchange(ExchangePyBase):
                 rpc_url = os.getenv('SOMNIA_RPC_URL', 'https://dream-rpc.somnia.network')
                 api_key = os.getenv('STANDARD_API_KEY', 'defaultApiKey')
                 
-                # Get Standard API and WebSocket URLs for Somnia Testnet
-                import standardweb3
-                api_url = standardweb3.api_urls.get('Somnia Testnet', 'https://story-odyssey-ponder.standardweb3.com')
-                websocket_url = standardweb3.websocket_urls.get('Somnia Testnet', 'wss://story-odyssey-websocket.standardweb3.com')
-                matching_engine_address = standardweb3.matching_engine_addresses.get('Somnia Testnet', '0x4Ca2C768773F6E0e9255da5B4e21ED9BA282B85e')
+                # Store RPC URL for nonce management
+                self._rpc_url = rpc_url
+                
+                # Use correct Somnia testnet endpoints from our constants
+                from hummingbot.connector.exchange.somnia.somnia_constants import (
+                    SOMNIA_GRAPHQL_ENDPOINT, 
+                    SOMNIA_WEBSOCKET_URL,
+                    STANDARD_EXCHANGE_ADDRESS
+                )
+                
+                api_url = SOMNIA_GRAPHQL_ENDPOINT  # https://somnia-testnet-ponder-release.standardweb3.com
+                websocket_url = SOMNIA_WEBSOCKET_URL  # wss://ws3-somnia-testnet-ponder-release.standardweb3.com
+                matching_engine_address = STANDARD_EXCHANGE_ADDRESS  # 0x0d3251EF0D66b60C4E387FC95462Bf274e50CBE1
                 
                 self.logger().info(f"StandardWeb3 config - API: {api_url}, WS: {websocket_url}, ME: {matching_engine_address}")
                 self.logger().info(f"Using private key length: {len(standard_client_private_key)} characters")
@@ -154,6 +162,11 @@ class SomniaExchange(ExchangePyBase):
                 self._standard_client = None
         else:
             self.logger().info("StandardWeb3 client disabled - library not available")
+        
+        # Initialize nonce management for blockchain transactions
+        self._last_nonce = 0
+        self._transaction_lock = asyncio.Lock()
+        self.logger().info("DEBUG: Nonce management initialized")
         
         # Initialize authentication
         self.logger().info("DEBUG: Initializing SomniaAuth")
@@ -826,6 +839,38 @@ class SomniaExchange(ExchangePyBase):
         
         return fee
 
+    async def _get_current_nonce(self) -> int:
+        """
+        Get proper blockchain nonce using Dexalot-style approach.
+        Note: Transaction lock should be held by caller to prevent race conditions.
+        """
+        try:
+            from web3 import Web3
+            
+            # Use the Web3 connection from our RPC URL
+            w3 = Web3(Web3.HTTPProvider(self._rpc_url))
+            
+            # Get current nonce from blockchain
+            current_nonce = await asyncio.get_event_loop().run_in_executor(
+                None, w3.eth.get_transaction_count, self._wallet_address, 'pending'
+            )
+            
+            # Use the higher of current blockchain nonce or our tracked nonce
+            # This prevents "nonce too low" errors from concurrent transactions
+            final_nonce = current_nonce if current_nonce > self._last_nonce else self._last_nonce
+            
+            # Update our tracking
+            self._last_nonce = final_nonce + 1
+            
+            self.logger().debug(f"Nonce management: blockchain={current_nonce}, tracked={self._last_nonce-1}, using={final_nonce}")
+            return final_nonce
+            
+        except Exception as e:
+            self.logger().error(f"Error getting blockchain nonce: {e}")
+            # Fallback: increment our tracked nonce
+            self._last_nonce += 1
+            return self._last_nonce
+
     async def _place_order(self,
                           order_id: str,
                           trading_pair: str,
@@ -875,30 +920,35 @@ class SomniaExchange(ExchangePyBase):
             else:
                 execution_price = price
             
-            # Use StandardClient to place the order
-            if is_buy:
-                # For buy orders: quote_amount = amount * price
-                quote_amount = amount * execution_price
-                tx_hash = await self._standard_client.limit_buy(
-                    base=base,
-                    quote=quote,
-                    price=float(execution_price),
-                    quote_amount=float(quote_amount),
-                    is_maker=True,  # Default to maker order
-                    n=0,  # Default nonce
-                    recipient=self._wallet_address
-                )
-            else:
-                # For sell orders: base_amount = amount
-                tx_hash = await self._standard_client.limit_sell(
-                    base=base,
-                    quote=quote,
-                    price=float(execution_price),
-                    base_amount=float(amount),
-                    is_maker=True,  # Default to maker order
-                    n=0,  # Default nonce
-                    recipient=self._wallet_address
-                )
+            # Use transaction lock to prevent nonce conflicts between multiple orders
+            async with self._transaction_lock:
+                # Get current nonce for the account to avoid "nonce too low" errors
+                current_nonce = await self._get_current_nonce()
+                
+                # Use StandardClient to place the order - convert symbols to addresses
+                if is_buy:
+                    # For buy orders: quote_amount = amount * price
+                    quote_amount = amount * execution_price
+                    tx_hash = await self._standard_client.limit_buy(
+                        base=base_address,  # Use token address, not symbol
+                        quote=quote_address,  # Use token address, not symbol
+                        price=float(execution_price),
+                        quote_amount=float(quote_amount),
+                        is_maker=True,  # Default to maker order
+                        n=current_nonce,  # Use dynamic nonce
+                        recipient=self._wallet_address
+                    )
+                else:
+                    # For sell orders: base_amount = amount
+                    tx_hash = await self._standard_client.limit_sell(
+                        base=base_address,  # Use token address, not symbol
+                        quote=quote_address,  # Use token address, not symbol
+                        price=float(execution_price),
+                        base_amount=float(amount),
+                        is_maker=True,  # Default to maker order
+                        n=current_nonce,  # Use dynamic nonce
+                        recipient=self._wallet_address
+                    )
             
             # Return transaction hash as exchange order ID
             timestamp = time.time()
