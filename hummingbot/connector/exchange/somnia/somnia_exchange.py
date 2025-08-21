@@ -916,7 +916,7 @@ class SomniaExchange(ExchangePyBase):
         """
         return trading_pair["symbol"]
 
-    async def _format_trading_rules(self, exchange_info_dict: Dict[str, Any]) -> Dict[str, TradingRule]:
+    async def _format_trading_rules(self, exchange_info_dict: Dict[str, Any]) -> List[TradingRule]:
         """
         Format trading rules from exchange response.
         
@@ -924,14 +924,14 @@ class SomniaExchange(ExchangePyBase):
             exchange_info_dict: Exchange info dictionary
             
         Returns:
-            Dictionary of trading rules
+            List of trading rules
         """
-        trading_rules = {}
+        trading_rules = []
         
         for trading_pair, rule_data in exchange_info_dict.items():
             try:
                 trading_rule = self._parse_trading_rule(rule_data)
-                trading_rules[trading_pair] = trading_rule
+                trading_rules.append(trading_rule)
             except Exception as e:
                 self.logger().error(f"Error formatting trading rule for {trading_pair}: {e}")
                 
