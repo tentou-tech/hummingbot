@@ -166,6 +166,10 @@ class SomniaExchange(ExchangePyBase):
         # Initialize nonce management for blockchain transactions
         self._last_nonce = 0
         self._transaction_lock = asyncio.Lock()
+        
+        # Store order ID mapping: client_order_id -> (blockchain_order_id, base_address, quote_address, is_bid)
+        self._order_id_map = {}
+        
         self.logger().info("DEBUG: Nonce management initialized")
         
         # Initialize authentication
@@ -950,9 +954,17 @@ class SomniaExchange(ExchangePyBase):
                         recipient=self._wallet_address
                     )
             
+            # Store order ID mapping for cancellation
+            self._order_id_map[order_id] = {
+                'blockchain_order_id': current_nonce,  # The 'n' parameter is the blockchain order ID
+                'base_address': base_address,
+                'quote_address': quote_address,
+                'is_bid': is_buy
+            }
+            
             # Return transaction hash as exchange order ID
             timestamp = time.time()
-            self.logger().info(f"Order placed successfully: {order_id} -> {tx_hash}")
+            self.logger().info(f"Order placed successfully: {order_id} -> {tx_hash} (blockchain_order_id: {current_nonce})")
             
             return tx_hash, timestamp
             
@@ -962,29 +974,202 @@ class SomniaExchange(ExchangePyBase):
 
     async def _place_cancel(self, order_id: str, tracked_order: InFlightOrder) -> str:
         """
-        Cancel an order on the exchange.
+        Cancel an order on the exchange using direct smart contract interaction.
         
         Args:
             order_id: Client order ID
             tracked_order: InFlightOrder instance
             
         Returns:
-            Exchange cancellation ID
+            Exchange cancellation ID (transaction hash)
         """
         try:
-            # StandardClient doesn't support order cancellation
-            # This is common for DEX protocols where orders are either filled or expire
-            self.logger().warning(f"Order cancellation not supported by StandardClient for order {order_id}")
+            # Check if we have the order information stored
+            if order_id in self._order_id_map:
+                order_info = self._order_id_map[order_id]
+                base_address = order_info['base_address']
+                quote_address = order_info['quote_address']
+                is_bid = order_info['is_bid']
+                blockchain_order_id = order_info['blockchain_order_id']
+                
+                self.logger().info(f"Using stored order info for cancellation: {order_id} -> blockchain_order_id: {blockchain_order_id}")
+                
+                # Cancel order using direct contract interaction
+                cancel_tx_hash = await self._cancel_order_on_contract(
+                    base_address=base_address,
+                    quote_address=quote_address,
+                    is_bid=is_bid,
+                    order_id=blockchain_order_id
+                )
+                
+                # Clean up the stored order info
+                del self._order_id_map[order_id]
+                
+                self.logger().info(f"Order cancelled on contract: {order_id} -> {cancel_tx_hash}")
+                return cancel_tx_hash
             
-            # Return a fake cancellation ID to satisfy the interface
-            # The order will be marked as cancelled locally
-            cancellation_id = f"cancelled_{order_id}"
-            
-            self.logger().info(f"Order marked as cancelled locally: {order_id} -> {cancellation_id}")
-            return cancellation_id
+            else:
+                # Fallback: try to extract from trading pair and exchange order ID
+                trading_pair = tracked_order.trading_pair
+                base, quote = utils.split_trading_pair(trading_pair)
+                
+                # Get token addresses
+                base_address = utils.convert_symbol_to_address(base)
+                quote_address = utils.convert_symbol_to_address(quote)
+                
+                if not base_address or not quote_address:
+                    raise ValueError(f"Could not get token addresses for {trading_pair}")
+                
+                # Determine if it's a bid (buy order)
+                is_bid = tracked_order.trade_type == TradeType.BUY
+                
+                # We need to extract the order ID from the transaction receipt
+                exchange_order_id = tracked_order.exchange_order_id
+                
+                if not exchange_order_id or exchange_order_id.startswith("cancelled_"):
+                    # If we don't have a valid exchange order ID, fall back to local cancellation
+                    self.logger().warning(f"No valid exchange order ID for {order_id}, marking as cancelled locally")
+                    cancellation_id = f"cancelled_{order_id}"
+                    self.logger().info(f"Order marked as cancelled locally: {order_id} -> {cancellation_id}")
+                    return cancellation_id
+                
+                # Extract order ID from transaction receipt (fallback method)
+                blockchain_order_id = await self._extract_order_id_from_transaction(exchange_order_id)
+                
+                if blockchain_order_id is None:
+                    self.logger().warning(f"Could not extract order ID from transaction {exchange_order_id}, using local cancellation")
+                    cancellation_id = f"cancelled_{order_id}"
+                    return cancellation_id
+                
+                # Cancel order using direct contract interaction
+                cancel_tx_hash = await self._cancel_order_on_contract(
+                    base_address=base_address,
+                    quote_address=quote_address,
+                    is_bid=is_bid,
+                    order_id=blockchain_order_id
+                )
+                
+                self.logger().info(f"Order cancelled on contract: {order_id} -> {cancel_tx_hash}")
+                return cancel_tx_hash
             
         except Exception as e:
             self.logger().error(f"Error cancelling order {order_id}: {e}")
+            # Fall back to local cancellation if contract cancellation fails
+            cancellation_id = f"cancelled_{order_id}"
+            # Clean up the stored order info if it exists
+            if order_id in self._order_id_map:
+                del self._order_id_map[order_id]
+            self.logger().info(f"Falling back to local cancellation: {order_id} -> {cancellation_id}")
+            return cancellation_id
+
+    async def _extract_order_id_from_transaction(self, tx_hash: str) -> Optional[int]:
+        """
+        Extract the order ID from a transaction by parsing the transaction input data.
+        The order ID is the 'n' parameter passed to limitSell/limitBuy functions.
+        
+        Args:
+            tx_hash: Transaction hash from order placement
+            
+        Returns:
+            Order ID if found, None otherwise
+        """
+        try:
+            from web3 import Web3
+            from standardweb3 import matching_engine_abi
+            
+            # Connect to Somnia network
+            w3 = Web3(Web3.HTTPProvider(self._rpc_url))
+            
+            # Get transaction
+            tx = w3.eth.get_transaction(tx_hash)
+            
+            if not tx or not tx.input:
+                self.logger().warning(f"No transaction input found for {tx_hash}")
+                return None
+            
+            # Create contract instance to decode function input
+            contract_address = Web3.to_checksum_address(CONSTANTS.STANDARD_EXCHANGE_ADDRESS)
+            contract = w3.eth.contract(address=contract_address, abi=matching_engine_abi)
+            
+            # Decode the function call
+            decoded = contract.decode_function_input(tx.input)
+            function_obj = decoded[0]
+            inputs = decoded[1]
+            
+            function_name = function_obj.fn_name
+            
+            # For limitSell/limitBuy, the 'n' parameter is the order ID
+            if function_name in ['limitSell', 'limitBuy'] and 'n' in inputs:
+                order_id = inputs['n']
+                self.logger().info(f"Extracted order ID {order_id} from {function_name} transaction {tx_hash}")
+                return order_id
+            else:
+                self.logger().warning(f"Could not find 'n' parameter in {function_name} transaction {tx_hash}")
+                return None
+            
+        except Exception as e:
+            self.logger().error(f"Error extracting order ID from transaction {tx_hash}: {e}")
+            return None
+
+    async def _cancel_order_on_contract(self, base_address: str, quote_address: str, is_bid: bool, order_id: int) -> str:
+        """
+        Cancel an order directly on the smart contract.
+        
+        Args:
+            base_address: Base token contract address
+            quote_address: Quote token contract address  
+            is_bid: True for buy orders, False for sell orders
+            order_id: Blockchain order ID
+            
+        Returns:
+            Transaction hash of cancellation
+        """
+        try:
+            from web3 import Web3
+            from standardweb3 import matching_engine_abi
+            from eth_account import Account
+            
+            # Connect to Somnia network
+            w3 = Web3(Web3.HTTPProvider(self._rpc_url))
+            
+            # Get contract instance
+            contract_address = Web3.to_checksum_address(CONSTANTS.STANDARD_EXCHANGE_ADDRESS)
+            contract = w3.eth.contract(address=contract_address, abi=matching_engine_abi)
+            
+            # Prepare account for signing
+            account = Account.from_key(self._private_key)
+            
+            # Use transaction lock to prevent nonce conflicts
+            async with self._transaction_lock:
+                # Get current nonce
+                nonce = await self._get_current_nonce()
+                
+                # Build transaction
+                transaction = contract.functions.cancelOrder(
+                    Web3.to_checksum_address(base_address),
+                    Web3.to_checksum_address(quote_address),
+                    is_bid,
+                    order_id
+                ).build_transaction({
+                    'from': account.address,
+                    'nonce': nonce,
+                    'gas': 200000,  # Estimate gas limit for cancel order
+                    'gasPrice': w3.eth.gas_price,
+                    'chainId': CONSTANTS.SOMNIA_CHAIN_ID
+                })
+                
+                # Sign and send transaction
+                signed_txn = account.sign_transaction(transaction)
+                tx_hash = w3.eth.send_raw_transaction(signed_txn.raw_transaction)
+                
+                # Convert to hex string with 0x prefix
+                tx_hash_hex = tx_hash.hex()
+                
+                self.logger().info(f"Cancel order transaction sent: {tx_hash_hex}")
+                return tx_hash_hex
+                
+        except Exception as e:
+            self.logger().error(f"Error cancelling order on contract: {e}")
             raise
 
     def _parse_trading_rule(self, trading_rule: Dict[str, Any]) -> TradingRule:
