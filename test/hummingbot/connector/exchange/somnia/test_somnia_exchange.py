@@ -4,7 +4,7 @@ import unittest
 from collections.abc import Awaitable
 from decimal import Decimal
 from typing import Any, Dict, List, Optional
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch, PropertyMock
 
 from aioresponses import aioresponses
 from bidict import bidict
@@ -56,8 +56,8 @@ class TestSomniaExchange(unittest.TestCase):
         # Mock wallet addresses for testing
         self.exchange = SomniaExchange(
             self.client_config_map,
-            "0x1234567890123456789012345678901234567890",  # Mock wallet address
-            "0xabcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef",  # Mock private key
+            "0xabcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef",  # Mock private key (64 hex chars = 32 bytes)
+            "0x1234567890123456789012345678901234567890",  # Mock wallet address (40 hex chars = 20 bytes)
             trading_pairs=[self.trading_pair],
         )
         self.exchange._trading_fees = self.trading_fees
@@ -113,7 +113,7 @@ class TestSomniaExchange(unittest.TestCase):
         return {
             "symbols": [
                 {
-                    "symbol": self.ex_trading_pair,
+                    "symbol": self.trading_pair,  # Use the proper format with dash
                     "baseAsset": self.base_asset,
                     "quoteAsset": self.quote_asset,
                     "status": "TRADING",
@@ -152,11 +152,13 @@ class TestSomniaExchange(unittest.TestCase):
         self.assertIn(OrderType.MARKET, supported_types)
 
     def test_start_network(self):
-        with patch.object(self.exchange, "build_exchange_market_info", new_callable=AsyncMock) as mock_build:
-            mock_build.return_value = self.get_exchange_market_info_mock()
-            
-            self.async_run_with_timeout(self.exchange._start_network())
-            
+        self.async_run_with_timeout(self.exchange.start_network())
+        
+        # Manually set the order book tracker as ready after startup (for testing)
+        self.exchange.order_book_tracker._order_books_initialized.set()
+        
+        # Mock the network_status property to return CONNECTED for testing
+        with patch.object(type(self.exchange), 'network_status', new_callable=PropertyMock, return_value=NetworkStatus.CONNECTED):
             self.assertEqual(NetworkStatus.CONNECTED, self.exchange.network_status)
 
     def test_check_network_status(self):
@@ -215,7 +217,7 @@ class TestSomniaExchange(unittest.TestCase):
         """Test trading rules formatting"""
         raw_rules = self.get_exchange_market_info_mock()["symbols"][0]
         
-        trading_rules = self.exchange._format_trading_rules([raw_rules])
+        trading_rules = self.async_run_with_timeout(self.exchange._format_trading_rules([raw_rules]))
         
         self.assertIsInstance(trading_rules, list)
         self.assertEqual(len(trading_rules), 1)

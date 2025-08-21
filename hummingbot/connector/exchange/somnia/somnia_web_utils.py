@@ -3,6 +3,8 @@
 import time
 from typing import Optional
 
+import aiohttp
+
 import hummingbot.connector.exchange.somnia.somnia_constants as CONSTANTS
 from hummingbot.core.api_throttler.async_throttler import AsyncThrottler
 from hummingbot.core.api_throttler.data_types import LinkedLimitWeightPair, RateLimit
@@ -66,8 +68,26 @@ def public_rest_url(path_url: str, domain: str = CONSTANTS.DEFAULT_DOMAIN, **kwa
     if "graphql" in path_url.lower():
         return CONSTANTS.SOMNIA_GRAPHQL_ENDPOINT + "/graphql"
     
-    # For other API endpoints
-    return CONSTANTS.REST_API_BASE_URL + "/" + path_url.lstrip("/")
+    # For other API endpoints - ensure proper URL joining with /
+    base_url = CONSTANTS.REST_API_BASE_URL.rstrip('/')
+    path = path_url.lstrip('/')
+    
+    # If it's a throttler ID (like GET_ORDERBOOK), convert to actual API path
+    if path_url == "GET_ORDERBOOK":
+        return f"{base_url}/api/orderbook"
+    elif path_url in ["GET_ACCOUNT_INFO", "GET_ACCOUNT_PATH_URL"]:
+        return f"{base_url}/api/account"
+    elif path_url == "GET_TOKEN_INFO":
+        return f"{base_url}/api/token"
+    elif path_url == "GET_PAIRS":
+        return f"{base_url}/api/pairs"
+    elif path_url == "POST_ORDER":
+        return f"{base_url}/api/orders"
+    elif path_url == "DELETE_ORDER":
+        return f"{base_url}/api/orders"
+    else:
+        # For actual path URLs, use proper / separation
+        return f"{base_url}/{path}"
 
 
 def private_rest_url(path_url: str, domain: str = CONSTANTS.DEFAULT_DOMAIN) -> str:

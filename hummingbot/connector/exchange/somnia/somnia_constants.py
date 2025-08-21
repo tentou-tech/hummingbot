@@ -3,6 +3,8 @@
 import os
 from typing import Dict, List
 
+from hummingbot.core.api_throttler.data_types import RateLimit
+
 # Exchange information
 EXCHANGE_NAME = "somnia"
 DEFAULT_DOMAIN = "mainnet"  # or "testnet"
@@ -125,6 +127,41 @@ WS_MESSAGE_TYPES = {
 ERROR_MESSAGES = {
     "insufficient_balance": "Insufficient balance to place order.",
     "invalid_order_params": "Invalid order parameters provided.",
+    "order_not_found": "Order not found.",
+    "connector_not_ready": "Somnia connector not ready. Please check the connection.",
+    "unexpected_error": "An unexpected error occurred. Please check logs for details.",
+    "network_error": "Network error connecting to Somnia blockchain.",
+    "authentication_failed": "Authentication failed. Please check your credentials.",
+    "rate_limit_exceeded": "Rate limit exceeded. Please wait before making more requests."
+}
+
+# Rate limits configuration for throttling
+RATE_LIMITS = [
+    # Generic limits for all endpoints
+    RateLimit(limit_id="DEFAULT_LIMIT", limit=10, time_interval=1),
+    # Order book endpoint
+    RateLimit(limit_id="GET_ORDERBOOK", limit=10, time_interval=1),
+    # Account info endpoint
+    RateLimit(limit_id="GET_ACCOUNT_INFO", limit=5, time_interval=1),
+    # Token info endpoint
+    RateLimit(limit_id="GET_TOKEN_INFO", limit=10, time_interval=1),
+    # Trading pairs endpoint
+    RateLimit(limit_id="GET_PAIRS", limit=10, time_interval=1),
+    # Order placement
+    RateLimit(limit_id="POST_ORDER", limit=5, time_interval=1),
+    # Order cancellation
+    RateLimit(limit_id="DELETE_ORDER", limit=10, time_interval=1),
+]
+
+# Additional path constants for consistency
+POST_ORDER_PATH_URL = "POST_ORDER"
+DELETE_ORDER_PATH_URL = "DELETE_ORDER"
+GET_ACCOUNT_PATH_URL = "GET_ACCOUNT_INFO"  # Alias for backward compatibility
+
+# Error messages
+ERROR_MESSAGES = {
+    "insufficient_balance": "Insufficient balance to place order.",
+    "invalid_order_params": "Invalid order parameters provided.", 
     "order_not_found": "Order not found.",
     "connector_not_ready": "Somnia connector not ready. Please check the connection.",
     "unexpected_error": "An unexpected error occurred. Please check logs for details.",

@@ -129,12 +129,13 @@ def convert_to_exchange_trading_pair(hb_trading_pair: str) -> str:
     Convert Hummingbot trading pair to exchange format.
     
     Args:
-        hb_trading_pair: Hummingbot trading pair format
+        hb_trading_pair: Hummingbot trading pair format (e.g., "STT-USDC")
         
     Returns:
-        Exchange trading pair format
+        Exchange trading pair format (e.g., "STTUSDC")
     """
-    return hb_trading_pair
+    # Remove the dash to get exchange format
+    return hb_trading_pair.replace("-", "").upper()
 
 
 def convert_from_exchange_trading_pair(exchange_trading_pair: str) -> str:
@@ -142,11 +143,31 @@ def convert_from_exchange_trading_pair(exchange_trading_pair: str) -> str:
     Convert exchange trading pair to Hummingbot format.
     
     Args:
-        exchange_trading_pair: Exchange trading pair format
+        exchange_trading_pair: Exchange trading pair format (e.g., "STTUSDC")
         
     Returns:
-        Hummingbot trading pair format
+        Hummingbot trading pair format (e.g., "STT-USDC")
     """
+    # Convert STTUSDC -> STT-USDC by finding the base/quote split
+    pair = exchange_trading_pair.upper()
+    
+    # Known token symbols to help with splitting
+    known_tokens = ["STT", "USDC", "WBTC", "ATOM", "OSMO", "TOKEN1", "TOKEN2", "SOMNIA"]
+    
+    # Try to find a match where the pair starts with a known token
+    for token in known_tokens:
+        if pair.startswith(token):
+            base = token
+            quote = pair[len(token):]
+            if quote in known_tokens:
+                return f"{base}-{quote}"
+    
+    # Fallback: assume the last 4 characters are USDC (most common quote)
+    if len(pair) > 4 and pair.endswith("USDC"):
+        base = pair[:-4]
+        return f"{base}-USDC"
+    
+    # If we can't parse it, return as-is (this shouldn't happen in normal operation)
     return exchange_trading_pair
 
 

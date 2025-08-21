@@ -104,7 +104,42 @@ class SomniaOrderBook(OrderBook):
                 "trade_id": msg.get("trade_id", str(int(msg.get("timestamp", 0)))),
                 "update_id": int(msg.get("timestamp", 0)),
                 "price": str(msg["price"]),
-                "amount": str(msg["amount"]),
+                "amount": str(msg.get("amount") or msg.get("quantity", "0")),
             },
             timestamp=float(msg.get("timestamp", 0)),
+        )
+
+    
+    @classmethod
+    def snapshot_message_from_exchange(
+        cls, msg: Dict[str, Any], timestamp: float, metadata: Optional[Dict] = None
+    ) -> OrderBookMessage:
+        """
+        Alias for snapshot_message_from_exchange_rest for test compatibility.
+        """
+        return cls.snapshot_message_from_exchange_rest(msg, timestamp, metadata)
+        
+    @classmethod
+    def diff_message_from_exchange(
+        cls, msg: Dict[str, Any], timestamp: float, metadata: Optional[Dict] = None
+    ) -> OrderBookMessage:
+        """
+        Creates a diff message with the order book update message
+        :param msg: the response from the exchange when requesting the order book update
+        :param timestamp: the update timestamp
+        :param metadata: a dictionary with extra information to add to the update data
+        :return: a diff message with the update information received from the exchange
+        """
+        if metadata:
+            msg.update(metadata)
+            
+        return OrderBookMessage(
+            OrderBookMessageType.DIFF,
+            {
+                "trading_pair": msg["trading_pair"],
+                "update_id": int(timestamp * 1000),
+                "bids": msg.get("bids", []),
+                "asks": msg.get("asks", []),
+            },
+            timestamp=timestamp,
         )

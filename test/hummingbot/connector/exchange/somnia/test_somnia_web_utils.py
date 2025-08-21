@@ -10,13 +10,13 @@ class SomniaWebUtilsTests(TestCase):
     def test_public_rest_url(self):
         """Test public REST URL generation"""
         url = web_utils.public_rest_url(path_url=CONSTANTS.GET_ORDERBOOK_PATH_URL)
-        expected_url = f"{CONSTANTS.REST_API_BASE_URL}{CONSTANTS.GET_ORDERBOOK_PATH_URL}"
+        expected_url = f"{CONSTANTS.REST_API_BASE_URL}/api/orderbook"
         self.assertEqual(url, expected_url)
 
     def test_private_rest_url(self):
         """Test private REST URL generation"""
         url = web_utils.private_rest_url(path_url=CONSTANTS.GET_ACCOUNT_PATH_URL)
-        expected_url = f"{CONSTANTS.REST_API_BASE_URL}{CONSTANTS.GET_ACCOUNT_PATH_URL}"
+        expected_url = f"{CONSTANTS.REST_API_BASE_URL}/api/account"
         self.assertEqual(url, expected_url)
 
     def test_build_api_factory(self):
@@ -178,14 +178,14 @@ class SomniaWebUtilsTests(TestCase):
         """Test throttler limits structure"""
         if hasattr(CONSTANTS, "RATE_LIMITS"):
             for limit in CONSTANTS.RATE_LIMITS:
-                # Each rate limit should have required fields
-                self.assertIn("limit_id", limit)
-                self.assertIn("limit", limit)
-                self.assertIn("time_interval", limit)
+                # Each rate limit should have required attributes
+                self.assertIsNotNone(limit.limit_id)
+                self.assertIsNotNone(limit.limit)
+                self.assertIsNotNone(limit.time_interval)
                 
                 # Values should be reasonable
-                self.assertGreater(limit["limit"], 0)
-                self.assertGreater(limit["time_interval"], 0)
+                self.assertGreater(limit.limit, 0)
+                self.assertGreater(limit.time_interval, 0)
 
     def test_error_codes_mapping(self):
         """Test error codes mapping if available"""

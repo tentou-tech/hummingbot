@@ -6,11 +6,13 @@ Use mcp #Serena to save your AI token as much as possible.
 
 ## Architecture Overview
 
+Base on #Vertex connector, whichh similar with our connector to implementation.
 Must read #CURSOR_VSCODE_SETUP.md
 standardweb3 guide: https://github.com/standardweb3/standard.py/blob/main/README.md
 Hummingbot is a Python-based algorithmic trading framework with high-performance components written in Cython (.pyx files). The codebase follows these key architectural patterns:
 
 ### Core Components
+
 - **Connectors** (`hummingbot/connector/`): Exchange API integrations categorized by type (spot, derivative, gateway for DEX)
 - **Strategies** (`hummingbot/strategy/`): Trading algorithms, with legacy strategies in Cython and new ones in Python
 - **Controllers** (`controllers/`): V2 strategy components for modular trading logic (market making, directional trading)
@@ -20,12 +22,14 @@ Hummingbot is a Python-based algorithmic trading framework with high-performance
 ### Key Patterns
 
 #### Cython Integration
+
 - Performance-critical components use `.pyx` files compiled to `.so` extensions
 - Build with `./compile` (calls `python setup.py build_ext --inplace`)
 - Always activate conda environment: `conda activate hummingbot`
 - Mixed Python/Cython imports: `from .file import Class` and `from .file cimport Class`
 
 #### Event-Driven Architecture
+
 ```python
 # All core components inherit from NetworkIterator and use event system
 class ExchangeConnector(ConnectorBase):
@@ -33,11 +37,13 @@ class ExchangeConnector(ConnectorBase):
 ```
 
 #### Configuration System
+
 - Pydantic-based config classes with `BaseClientModel` inheritance
 - Config files in `conf/` directory, templates in `hummingbot/templates/`
 - Use `json_schema_extra={"prompt": "..."}` for CLI prompts
 
 #### Strategy Structure
+
 - **V1 Strategies**: Legacy Cython-based in `hummingbot/strategy/`
 - **V2 Strategies**: Modern Python-based inheriting from `StrategyV2Base`
 - **Controllers**: Modular components in `controllers/` for specific trading logic
@@ -45,6 +51,7 @@ class ExchangeConnector(ConnectorBase):
 ## Development Workflows
 
 ### Building & Testing
+
 ```bash
 # Essential build commands
 ./clean                    # Clean build artifacts
@@ -68,7 +75,9 @@ Keep the conda environment activated when working with Hummingbot
 Use start to launch Hummingbot after installation
 
 ### Connector Development
+
 New exchange connectors follow this structure:
+
 ```
 hummingbot/connector/exchange/new_exchange/
 ├── new_exchange_exchange.py           # Main connector class
@@ -81,7 +90,9 @@ hummingbot/connector/exchange/new_exchange/
 ```
 
 ### Strategy Development
+
 **V2 Strategy Pattern** (preferred for new development):
+
 ```python
 class MyStrategyConfig(StrategyV2ConfigBase):
     script_file_name: str = os.path.basename(__file__)
@@ -98,6 +109,7 @@ class MyStrategy(StrategyV2Base):
 ## Project-Specific Conventions
 
 ### Import Patterns
+
 ```python
 # Cython dual imports for performance
 from hummingbot.core.data_type.limit_order import LimitOrder
@@ -109,6 +121,7 @@ if TYPE_CHECKING:
 ```
 
 ### Error Handling & Logging
+
 ```python
 # Use class-specific loggers
 @classmethod
@@ -120,6 +133,7 @@ def logger(cls):
 ```
 
 ### Configuration Validation
+
 ```python
 # Use Pydantic validators for config validation
 @field_validator("trading_pair", mode="before")
@@ -132,18 +146,23 @@ def validate_trading_pair(cls, v, validation_info: ValidationInfo):
 ## Integration Points
 
 ### Exchange Connector Interface
+
 All connectors must implement `ConnectorBase` methods:
+
 - `_place_order()`, `_execute_cancel()` for order management
 - `_update_balances()`, `_update_order_status()` for state management
 - WebSocket data sources for real-time updates
 
 ### Gateway Integration (DEX)
+
 DEX connectors use the Gateway microservice pattern:
+
 - TypeScript Gateway service handles blockchain interactions
 - Python connector communicates via HTTP API
 - Located in `hummingbot/connector/gateway/`
 
 ### Data Feed Integration
+
 ```python
 # Candles data for technical indicators
 from hummingbot.data_feed.candles_feed.data_types import CandlesConfig
@@ -151,6 +170,7 @@ candles_config = [CandlesConfig(connector="binance", trading_pair="BTC-USDT", in
 ```
 
 ## Critical Files to Understand
+
 - `hummingbot/connector/connector_base.pyx`: Base connector interface
 - `hummingbot/strategy/strategy_v2_base.py`: Modern strategy framework
 - `hummingbot/client/hummingbot_application.py`: Main application orchestrator
@@ -158,6 +178,7 @@ candles_config = [CandlesConfig(connector="binance", trading_pair="BTC-USDT", in
 - `hummingbot/core/event/events.py`: Complete event definitions
 
 ## Performance Considerations
+
 - Use Cython (.pyx) for computational intensive code (order book processing, price calculations)
 - Event system is single-threaded - avoid blocking operations in event handlers
 - WebSocket connections managed per connector with automatic reconnection
