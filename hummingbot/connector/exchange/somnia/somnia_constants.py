@@ -61,9 +61,11 @@ ORDER_STATUS_UPDATE_INTERVAL = 10.0
 # Trading pairs available on Somnia testnet
 SOMNIA_TESTNET_TRADING_PAIRS = [
     "STT-USDC",
+    "WBTC-USDC",
+    "SOL-USDC",
+    # Legacy pairs (may not be active)
     "ATOM-USDC", 
     "OSMO-USDC",
-    "WBTC-USDC",
     "TOKEN1-TOKEN2"
 ]
 
@@ -72,6 +74,7 @@ TOKEN_ADDRESSES = {
     "STT": "0x4A3BC48C156384f9564Fd65A53a2f3D534D8f2b7",
     "USDC": "0x0ED782B8079529f7385c3eDA9fAf1EaA0DbC6a17", 
     "WBTC": "0x54597df4E4A6385B77F39d458Eb75443A8f9Aa9e",
+    "SOL": "0x...",  # To be added when SOL address is available
     "ATOM": "0x...",  # To be added when available
     "OSMO": "0x...",  # To be added when available
     "TOKEN1": "0x33E7fAB0a8a5da1A923180989bD617c9c2D1C493",
@@ -83,6 +86,7 @@ TOKEN_DECIMALS = {
     "STT": 18,
     "USDC": 6,
     "WBTC": 8,
+    "SOL": 9,  # Standard SOL decimals
     "ATOM": 18,
     "OSMO": 18, 
     "TOKEN1": 18,
