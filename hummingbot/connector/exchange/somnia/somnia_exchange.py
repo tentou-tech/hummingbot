@@ -1543,14 +1543,32 @@ class SomniaExchange(ExchangePyBase):
                             break
             
             if not order_status:
-                # Order not found, might be too old or failed
-                return OrderUpdate(
-                    trading_pair=tracked_order.trading_pair,
-                    update_timestamp=time.time(),
-                    new_state=OrderState.FAILED,
-                    client_order_id=tracked_order.client_order_id,
-                    exchange_order_id=tracked_order.exchange_order_id,
-                )
+                # Order not found - might be too new or still being indexed
+                # Don't immediately mark as failed, give it more time
+                creation_time = tracked_order.creation_timestamp
+                current_time = time.time()
+                time_since_creation = current_time - creation_time
+                
+                # Only mark as failed if order is older than 5 minutes and still not found
+                if time_since_creation > 300:  # 5 minutes
+                    self.logger().warning(f"Order {tracked_order.client_order_id} not found after 5 minutes, marking as failed")
+                    return OrderUpdate(
+                        trading_pair=tracked_order.trading_pair,
+                        update_timestamp=time.time(),
+                        new_state=OrderState.FAILED,
+                        client_order_id=tracked_order.client_order_id,
+                        exchange_order_id=tracked_order.exchange_order_id,
+                    )
+                else:
+                    # Order is still new, assume it's OPEN and wait for indexing
+                    self.logger().debug(f"Order {tracked_order.client_order_id} not found yet (age: {time_since_creation:.1f}s), assuming OPEN")
+                    return OrderUpdate(
+                        trading_pair=tracked_order.trading_pair,
+                        update_timestamp=time.time(),
+                        new_state=OrderState.OPEN,
+                        client_order_id=tracked_order.client_order_id,
+                        exchange_order_id=tracked_order.exchange_order_id,
+                    )
             
             # Parse the status response
             new_state = self._parse_order_status(order_status)
