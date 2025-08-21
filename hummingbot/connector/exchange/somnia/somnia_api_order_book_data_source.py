@@ -2,9 +2,12 @@
 
 import asyncio
 import logging
+import time
 from collections import defaultdict
 from decimal import Decimal
 from typing import TYPE_CHECKING, Any, Dict, List, Optional
+
+from standardweb3 import StandardClient
 
 from hummingbot.connector.exchange.somnia import (
     somnia_constants as CONSTANTS,
@@ -62,6 +65,19 @@ class SomniaAPIOrderBookDataSource(OrderBookTrackerDataSource):
         )
         self._message_queue: Dict[str, asyncio.Queue] = defaultdict(asyncio.Queue)
         self._last_orderbook_timestamp: Dict[str, float] = {}
+        
+        # Initialize StandardWeb3 client for API calls
+        try:
+            self._standard_client = StandardClient(
+                private_key='0x0000000000000000000000000000000000000000000000000000000000000001',  # dummy key for read-only operations
+                http_rpc_url=CONSTANTS.SOMNIA_RPC_URL,
+                matching_engine_address=CONSTANTS.STANDARD_EXCHANGE_ADDRESS,
+                api_url=CONSTANTS.REST_API_BASE_URL
+            )
+            self.logger().info("✅ StandardWeb3 client initialized successfully")
+        except Exception as e:
+            self.logger().error(f"❌ Failed to initialize StandardWeb3 client: {e}")
+            self._standard_client = None
 
     async def get_last_traded_prices(
         self, 
@@ -90,15 +106,16 @@ class SomniaAPIOrderBookDataSource(OrderBookTrackerDataSource):
                 asks = snapshot.get("asks", [])
                 
                 if bids and asks:
-                    best_bid = float(bids[0].get("price", 0))
-                    best_ask = float(asks[0].get("price", 0))
+                    # bids and asks are arrays of [price, size] tuples
+                    best_bid = float(bids[0][0]) if len(bids[0]) > 0 else 0
+                    best_ask = float(asks[0][0]) if len(asks[0]) > 0 else 0
                     if best_bid > 0 and best_ask > 0:
                         # Use mid-price as last traded price
                         result[trading_pair] = (best_bid + best_ask) / 2
                 elif bids:
-                    result[trading_pair] = float(bids[0].get("price", 0))
+                    result[trading_pair] = float(bids[0][0]) if len(bids[0]) > 0 else 0
                 elif asks:
-                    result[trading_pair] = float(asks[0].get("price", 0))
+                    result[trading_pair] = float(asks[0][0]) if len(asks[0]) > 0 else 0
                     
             except Exception as e:
                 self.logger().error(f"Error getting last traded price for {trading_pair}: {e}")
@@ -119,24 +136,10 @@ class SomniaAPIOrderBookDataSource(OrderBookTrackerDataSource):
         snapshot_timestamp = utils.generate_timestamp()
         
         # Parse the snapshot data
-        asks = []
-        bids = []
-        
-        # Extract order book data from REST API response
-        # Response format: {"bids": [...], "asks": [...]}
-        # Each entry: {"price": "string", "amount": "string", "count": number}
-        bid_orders = snapshot.get("bids", [])
-        ask_orders = snapshot.get("asks", [])
-        
-        for order in ask_orders:
-            price = float(order.get("price", 0))
-            amount = float(order.get("amount", 0))
-            asks.append([price, amount])
-            
-        for order in bid_orders:
-            price = float(order.get("price", 0))
-            amount = float(order.get("amount", 0))
-            bids.append([price, amount])
+        # The _request_order_book_snapshot already returns processed data in format:
+        # {"bids": [[price, size], ...], "asks": [[price, size], ...]}
+        bids = snapshot.get("bids", [])
+        asks = snapshot.get("asks", [])
         
         # Prepare data for SomniaOrderBook
         snapshot_data = {
@@ -189,7 +192,7 @@ class SomniaAPIOrderBookDataSource(OrderBookTrackerDataSource):
 
     async def _request_order_book_snapshot(self, trading_pair: str) -> Dict[str, Any]:
         """
-        Request order book snapshot from the exchange using REST API.
+        Request order book snapshot from the exchange using StandardWeb3 client with REST API fallback.
         
         Args:
             trading_pair: Trading pair (e.g., 'STT-USDC')
@@ -198,120 +201,251 @@ class SomniaAPIOrderBookDataSource(OrderBookTrackerDataSource):
             Raw order book data from exchange
         """
         self.logger().info(f"DEBUG: _request_order_book_snapshot called for {trading_pair}")
-        self.logger().info(f"🔴 PRODUCTION MODE: Fetching REAL order book data for {trading_pair} from Somnia API")
+        self.logger().info(f"🔴 PRODUCTION MODE: Fetching REAL order book data for {trading_pair}")
         
+        # Extract token addresses from trading pair for API call
+        # STT-USDC -> base=STT, quote=USDC
+        base_symbol, quote_symbol = trading_pair.split('-')
+        
+        # Get token addresses from constants file
+        from .somnia_constants import TOKEN_ADDRESSES, REST_API_BASE_URL
+        
+        base_address = TOKEN_ADDRESSES.get(base_symbol)
+        quote_address = TOKEN_ADDRESSES.get(quote_symbol)
+        
+        if not base_address or not quote_address:
+            raise ValueError(f"Unknown token addresses for {trading_pair}. Base: {base_symbol} -> {base_address}, Quote: {quote_symbol} -> {quote_address}")
+        
+        self.logger().info(f"🔍 Token mapping: {base_symbol}({base_address}) / {quote_symbol}({quote_address})")
+        
+        # Method 1: Try StandardWeb3 client first
+        if self._standard_client:
+            try:
+                self.logger().info("🥇 PRIMARY: Attempting StandardWeb3 client method")
+                return await self._fetch_via_standardweb3(base_address, quote_address, trading_pair)
+            except Exception as e:
+                self.logger().warning(f"⚠️ StandardWeb3 client failed: {e}")
+                self.logger().info("🔄 Falling back to REST API method")
+        else:
+            self.logger().warning("⚠️ StandardWeb3 client not available, using REST API method")
+        
+        # Method 2: Fallback to REST API
         try:
-            # Get REST assistant for making HTTP requests
-            rest_assistant = await self._api_factory.get_rest_assistant()
+            self.logger().info("🥈 FALLBACK: Using REST API method")
+            return await self._fetch_via_rest_api(base_address, quote_address, trading_pair, REST_API_BASE_URL)
+        except Exception as e:
+            self.logger().error(f"💥 Both StandardWeb3 and REST API methods failed for {trading_pair}")
+            self.logger().error(f"StandardWeb3 client available: {self._standard_client is not None}")
+            self.logger().error(f"REST API error: {e}")
+            raise e
+
+    async def _fetch_via_standardweb3(self, base_address: str, quote_address: str, trading_pair: str) -> Dict[str, Any]:
+        """
+        Fetch order book data using StandardWeb3 client.
+        
+        Args:
+            base_address: Base token address
+            quote_address: Quote token address
+            trading_pair: Trading pair name
             
-            # Extract token addresses from trading pair for API call
-            # STT-USDC -> base=STT, quote=USDC
-            base_symbol, quote_symbol = trading_pair.split('-')
+        Returns:
+            Order book data in standardized format
+        """
+        # Use StandardWeb3 client to fetch order book ticks
+        limit = 20  # Get top 20 levels
+        
+        self.logger().info(f"🌐 Calling StandardWeb3 fetch_orderbook_ticks({base_address}, {quote_address}, {limit})")
+        
+        # Call the async standardweb3 API method directly
+        response = await self._standard_client.fetch_orderbook_ticks(
+            base=base_address,
+            quote=quote_address,
+            limit=limit
+        )
+        
+        self.logger().info(f"✅ Received response from StandardWeb3 API for {trading_pair}")
+        self.logger().debug(f"📋 Raw API response: {response}")
+        
+        # Process the response from StandardWeb3 API
+        if response and isinstance(response, dict):
+            # New response format from StandardWeb3 0.0.5:
+            # {
+            #     "id": "...",
+            #     "mktPrice": 286.68875,
+            #     "bids": [{"orderbook": "...", "price": 286.68875, "amount": 2406.3303, "count": 1}, ...],
+            #     "asks": [{"orderbook": "...", "price": 286.68906, "amount": 4.6462846, "count": 1}, ...]
+            # }
             
-            # Token address mappings
-            token_addresses = {
-                "STT": "0x4A3BC48C156384f9564Fd65A53a2f3D534D8f2b7",
-                "USDC": "0x0ED782B8079529f7385c3eDA9fAf1EaA0DbC6a17"
+            raw_bids = response.get("bids", [])
+            raw_asks = response.get("asks", [])
+            
+            if not raw_bids and not raw_asks:
+                self.logger().warning(f"⚠️ No order book data returned for {trading_pair}")
+            
+            # Process bids and asks directly from the response
+            bids = []
+            asks = []
+            
+            # Process bids
+            for bid in raw_bids:
+                try:
+                    price = float(bid.get("price", 0))
+                    amount = float(bid.get("amount", 0))
+                    if price > 0 and amount > 0:  # Skip zero amounts
+                        bids.append([price, amount])
+                except (ValueError, TypeError) as e:
+                    self.logger().warning(f"⚠️ Invalid bid data format: {bid}, error: {e}")
+                    continue
+            
+            # Process asks
+            for ask in raw_asks:
+                try:
+                    price = float(ask.get("price", 0))
+                    amount = float(ask.get("amount", 0))
+                    if price > 0 and amount > 0:  # Skip zero amounts
+                        asks.append([price, amount])
+                except (ValueError, TypeError) as e:
+                    self.logger().warning(f"⚠️ Invalid ask data format: {ask}, error: {e}")
+                    continue
+            
+            # Sort bids (highest price first) and asks (lowest price first)
+            bids.sort(key=lambda x: x[0], reverse=True)
+            asks.sort(key=lambda x: x[0])
+            
+            self.logger().info(f"📊 Processed order book: {len(bids)} bids, {len(asks)} asks")
+            self.logger().debug(f"📈 Top bids: {bids[:5]}")
+            self.logger().debug(f"📉 Top asks: {asks[:5]}")
+            
+            # Return in expected format for order book processing
+            order_book_data = {
+                "symbol": trading_pair,
+                "bids": bids,
+                "asks": asks,
+                "timestamp": int(time.time() * 1000),
+                "mktPrice": response.get("mktPrice", 0),  # Include market price if available
+                "source": "standardweb3"
             }
             
-            base_address = token_addresses.get(base_symbol)
-            quote_address = token_addresses.get(quote_symbol)
+            self.logger().info(f"🎯 Successfully fetched REAL order book data for {trading_pair} using StandardWeb3 0.0.5")
+            return order_book_data
             
-            if not base_address or not quote_address:
-                raise ValueError(f"Unknown token addresses for {trading_pair}. Base: {base_symbol} -> {base_address}, Quote: {quote_symbol} -> {quote_address}")
+        else:
+            raise ValueError(f"Invalid StandardWeb3 response format for {trading_pair}: {response}")
+
+    async def _fetch_via_rest_api(self, base_address: str, quote_address: str, trading_pair: str, base_url: str) -> Dict[str, Any]:
+        """
+        Fetch order book data using direct REST API calls as fallback.
+        
+        Args:
+            base_address: Base token address
+            quote_address: Quote token address
+            trading_pair: Trading pair name
+            base_url: REST API base URL
             
-            self.logger().info(f"🔍 Token mapping: {base_symbol}({base_address}) / {quote_symbol}({quote_address})")
-            
-            # Prepare the API endpoint for order book ticks
-            # Format: /api/orderbook/ticks/{base}/{quote}/{limit}
-            limit = 20  # Get top 20 levels
-            endpoint = f"/api/orderbook/ticks/{base_address}/{quote_address}/{limit}"
-            
-            # Use the base URL from constants
-            from .somnia_constants import REST_API_BASE_URL
-            url = f"{REST_API_BASE_URL}{endpoint}"
-            
-            self.logger().info(f"🌐 Making API call to: {url}")
-            
-            # Make the API call to Somnia REST endpoint
-            response = await rest_assistant.execute_request(
-                url=url,
-                method=RESTMethod.GET,
-                headers={"Content-Type": "application/json"},
-                throttler_limit_id="order_book_snapshot"
-            )
-            
-            self.logger().info(f"✅ Received response from Somnia API for {trading_pair}")
-            self.logger().debug(f"📋 Raw API response: {response}")
-            
-            # Process the response from StandardWeb3 API
-            if response and isinstance(response, dict):
-                # Expected response format from StandardWeb3:
-                # {
-                #     "data": [
-                #         {
-                #             "price": "273.5",
-                #             "size": "100.0", 
-                #             "side": "buy"  # or "sell"
-                #         },
-                #         ...
-                #     ]
-                # }
-                
-                raw_data = response.get("data", [])
-                if not raw_data:
-                    self.logger().warning(f"⚠️ No order book data returned for {trading_pair}")
-                    raw_data = []
-                
-                # Process and separate bids/asks
-                bids = []
-                asks = []
-                
-                for tick in raw_data:
-                    try:
-                        price = float(tick.get("price", 0))
-                        size = float(tick.get("size", 0))
-                        side = tick.get("side", "").lower()
-                        
-                        if side == "buy":
-                            bids.append([price, size])
-                        elif side == "sell":
-                            asks.append([price, size])
-                            
-                    except (ValueError, TypeError) as e:
-                        self.logger().warning(f"⚠️ Invalid tick data format: {tick}, error: {e}")
-                        continue
-                
-                # Sort bids (highest price first) and asks (lowest price first)
-                bids.sort(key=lambda x: x[0], reverse=True)
-                asks.sort(key=lambda x: x[0])
-                
-                self.logger().info(f"📊 Processed order book: {len(bids)} bids, {len(asks)} asks")
-                self.logger().debug(f"📈 Top bids: {bids[:5]}")
-                self.logger().debug(f"📉 Top asks: {asks[:5]}")
-                
-                # Return in expected format for order book processing
-                order_book_data = {
-                    "symbol": trading_pair,
-                    "bids": bids,
-                    "asks": asks,
-                    "timestamp": int(time.time() * 1000)
-                }
-                
-                self.logger().info(f"🎯 Successfully fetched REAL order book data for {trading_pair}")
-                return order_book_data
-                
+        Returns:
+            Order book data in standardized format
+        """
+        # Get REST assistant for making HTTP requests
+        rest_assistant = await self._api_factory.get_rest_assistant()
+        
+        # Prepare the API endpoint for order book ticks
+        # Format: /api/orderbook/ticks/{base}/{quote}/{limit}
+        limit = 20  # Get top 20 levels
+        endpoint = f"/api/orderbook/ticks/{base_address}/{quote_address}/{limit}"
+        url = f"{base_url}{endpoint}"
+        
+        self.logger().info(f"🌐 Making REST API call to: {url}")
+        
+        # Make the API call to Somnia REST endpoint
+        response = await rest_assistant.execute_request(
+            url=url,
+            method=RESTMethod.GET,
+            headers={"Content-Type": "application/json"},
+            throttler_limit_id=CONSTANTS.GET_ORDERBOOK_PATH_URL
+        )
+        
+        self.logger().info(f"✅ Received response from REST API for {trading_pair}")
+        self.logger().debug(f"📋 Raw API response: {response}")
+        
+        # Process the response from REST API
+        if response and isinstance(response, dict):
+            # Check if it's the same format as StandardWeb3 or a different format
+            if "bids" in response and "asks" in response:
+                # Same format as StandardWeb3 - process directly
+                self.logger().info("📋 REST API returned StandardWeb3-compatible format")
+                return await self._process_standardweb3_format(response, trading_pair, "rest_api")
             else:
-                self.logger().error(f"❌ Invalid response format from Somnia API for {trading_pair}: {response}")
-                raise ValueError(f"Invalid order book response for {trading_pair}")
-                
-        except Exception as e:
-            self.logger().error(f"💥 Failed to fetch order book from Somnia API for {trading_pair}: {e}")
-            self.logger().exception("Full error details:")
+                # Handle other potential formats here
+                # This could be extended to handle different API response formats
+                self.logger().warning(f"⚠️ Unknown REST API response format for {trading_pair}")
+                raise ValueError(f"Unrecognized REST API response format for {trading_pair}")
+        else:
+            raise ValueError(f"Invalid REST API response for {trading_pair}: {response}")
+
+    async def _process_standardweb3_format(self, response: Dict[str, Any], trading_pair: str, source: str) -> Dict[str, Any]:
+        """
+        Process response data that follows StandardWeb3 format.
+        
+        Args:
+            response: API response data
+            trading_pair: Trading pair name
+            source: Source of the data ("standardweb3" or "rest_api")
             
-            # For production, we should NOT fall back to mock data
-            # Instead, raise the exception to signal the issue
-            raise e
+        Returns:
+            Processed order book data
+        """
+        raw_bids = response.get("bids", [])
+        raw_asks = response.get("asks", [])
+        
+        if not raw_bids and not raw_asks:
+            self.logger().warning(f"⚠️ No order book data returned for {trading_pair} from {source}")
+        
+        # Process bids and asks
+        bids = []
+        asks = []
+        
+        # Process bids
+        for bid in raw_bids:
+            try:
+                price = float(bid.get("price", 0))
+                amount = float(bid.get("amount", 0))
+                if price > 0 and amount > 0:  # Skip zero amounts
+                    bids.append([price, amount])
+            except (ValueError, TypeError) as e:
+                self.logger().warning(f"⚠️ Invalid bid data format: {bid}, error: {e}")
+                continue
+        
+        # Process asks
+        for ask in raw_asks:
+            try:
+                price = float(ask.get("price", 0))
+                amount = float(ask.get("amount", 0))
+                if price > 0 and amount > 0:  # Skip zero amounts
+                    asks.append([price, amount])
+            except (ValueError, TypeError) as e:
+                self.logger().warning(f"⚠️ Invalid ask data format: {ask}, error: {e}")
+                continue
+        
+        # Sort bids (highest price first) and asks (lowest price first)
+        bids.sort(key=lambda x: x[0], reverse=True)
+        asks.sort(key=lambda x: x[0])
+        
+        self.logger().info(f"📊 Processed order book from {source}: {len(bids)} bids, {len(asks)} asks")
+        self.logger().debug(f"📈 Top bids: {bids[:5]}")
+        self.logger().debug(f"📉 Top asks: {asks[:5]}")
+        
+        # Return in expected format for order book processing
+        order_book_data = {
+            "symbol": trading_pair,
+            "bids": bids,
+            "asks": asks,
+            "timestamp": int(time.time() * 1000),
+            "mktPrice": response.get("mktPrice", 0),  # Include market price if available
+            "source": source
+        }
+        
+        self.logger().info(f"🎯 Successfully fetched REAL order book data for {trading_pair} using {source}")
+        return order_book_data
 
     async def _parse_order_book_diff_message(
         self, 

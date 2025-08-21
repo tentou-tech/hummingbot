@@ -23,6 +23,11 @@ RATE_LIMITS = [
         time_interval=1.0
     ),
     RateLimit(
+        limit_id=CONSTANTS.GET_ORDERBOOK_PATH_URL,
+        limit=20,
+        time_interval=1.0
+    ),
+    RateLimit(
         limit_id="trades",
         limit=20,
         time_interval=1.0
