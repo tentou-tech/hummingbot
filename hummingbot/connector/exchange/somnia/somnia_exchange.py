@@ -294,10 +294,10 @@ class SomniaExchange(ExchangePyBase):
             self.logger().info("DEBUG: start_network() called - beginning network startup")
             self.logger().info("Starting Somnia network...")
             
-            # TEMPORARILY SKIP build_exchange_market_info to isolate the order book tracker issue
-            # self.logger().info("DEBUG: About to call build_exchange_market_info()")
-            # await self.build_exchange_market_info()
-            # self.logger().info("DEBUG: build_exchange_market_info() completed successfully")
+            # Initialize exchange market info for trading rules and symbol mapping
+            self.logger().info("DEBUG: About to call build_exchange_market_info()")
+            await self.build_exchange_market_info()
+            self.logger().info("DEBUG: build_exchange_market_info() completed successfully")
             
             self.logger().info("DEBUG: About to call super().start_network() which should start order book tracker")
             await super().start_network()
@@ -1240,6 +1240,12 @@ class SomniaExchange(ExchangePyBase):
     def is_trading_required(self) -> bool:
         """
         Whether trading is required for this connector.
+        """
+        return True
+
+    def _is_user_stream_initialized(self) -> bool:
+        """
+        Override to always return True since Somnia uses REST API polling instead of WebSocket user streams.
         """
         return True
 
