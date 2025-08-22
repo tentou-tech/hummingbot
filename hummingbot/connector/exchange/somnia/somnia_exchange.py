@@ -1472,16 +1472,10 @@ class SomniaExchange(ExchangePyBase):
             tokens = set()
             
             if not self._trading_pairs:
-                # In non-trading mode, skip balance updates to avoid unnecessary warnings
-                if not self._trading_required:
-                    self.logger().info("Non-trading connector mode - skipping balance updates")
-                    return
-                else:
-                    # In trading mode, we should have trading pairs configured by the strategy
-                    self.logger().warning("Trading mode requires configured trading pairs for balance updates")
-                    # For balance command, try to fetch common tokens anyway
-                    tokens = {"STT", "USDC", "SOMNIA"}
-                    self.logger().info(f"Using default tokens for balance check: {tokens}")
+                # For balance command or non-trading mode, use default tokens
+                self.logger().info("No trading pairs configured - using default tokens for balance check")
+                tokens = CONSTANTS.DEFAULT_TOKENS.copy()
+                self.logger().info(f"Using default tokens for balance check: {tokens}")
             else:
                 for trading_pair in self._trading_pairs:
                     base, quote = utils.split_trading_pair(trading_pair)

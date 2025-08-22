@@ -71,6 +71,9 @@ SOMNIA_TESTNET_TRADING_PAIRS = [
     "TOKEN1-TOKEN2"
 ]
 
+# Default tokens for balance checking and non-trading mode
+DEFAULT_TOKENS = {"STT", "USDC", "SOMNIA"}
+
 # Token address mappings for Somnia testnet
 TOKEN_ADDRESSES = {
     "STT": "0x4A3BC48C156384f9564Fd65A53a2f3D534D8f2b7",
