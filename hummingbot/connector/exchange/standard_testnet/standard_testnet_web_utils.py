@@ -5,7 +5,7 @@ from typing import Optional
 
 import aiohttp
 
-import hummingbot.connector.exchange.somnia.somnia_constants as CONSTANTS
+import hummingbot.connector.exchange.standard_testnet.standard_testnet_constants as CONSTANTS
 from hummingbot.core.api_throttler.async_throttler import AsyncThrottler
 from hummingbot.core.api_throttler.data_types import LinkedLimitWeightPair, RateLimit
 from hummingbot.core.web_assistant.auth import AuthBase
@@ -202,7 +202,7 @@ def format_trading_pair_for_api(trading_pair: str) -> tuple:
     Returns:
         Tuple of (base_symbol, quote_symbol)
     """
-    from .somnia_utils import split_trading_pair, convert_symbol_to_address
+    from .standard_testnet_utils import split_trading_pair, convert_symbol_to_address
     
     base, quote = split_trading_pair(trading_pair)
     

@@ -9,9 +9,9 @@ from bidict import bidict
 
 from hummingbot.client.config.client_config_map import ClientConfigMap
 from hummingbot.client.config.config_helpers import ClientConfigAdapter
-from hummingbot.connector.exchange.somnia import somnia_constants as CONSTANTS
-from hummingbot.connector.exchange.somnia.somnia_api_order_book_data_source import SomniaAPIOrderBookDataSource
-from hummingbot.connector.exchange.somnia.somnia_exchange import SomniaExchange
+from hummingbot.connector.exchange.standard_testnet import standard_testnet_constants as CONSTANTS
+from hummingbot.connector.exchange.standard_testnet.standard_testnet_api_order_book_data_source import StandardTestnetAPIOrderBookDataSource
+from hummingbot.connector.exchange.standard_testnet.standard_testnet_exchange import StandardTestnetExchange
 from hummingbot.connector.test_support.network_mocking_assistant import NetworkMockingAssistant
 from hummingbot.connector.time_synchronizer import TimeSynchronizer
 from hummingbot.core.api_throttler.async_throttler import AsyncThrottler
@@ -23,7 +23,7 @@ ORDER_BOOK_DIFF_KEY = "order_book_diff"
 ORDER_BOOK_SNAPSHOT_KEY = "order_book_snapshot"
 
 
-class TestSomniaAPIOrderBookDataSource(IsolatedAsyncioWrapperTestCase):
+class TestStandardTestnetAPIOrderBookDataSource(IsolatedAsyncioWrapperTestCase):
     # logging.Level required to receive logs from the data source logger
     level = 0
 
@@ -44,7 +44,7 @@ class TestSomniaAPIOrderBookDataSource(IsolatedAsyncioWrapperTestCase):
         client_config_map = ClientConfigAdapter(ClientConfigMap())
 
         # Mock wallet addresses for testing
-        self.connector = SomniaExchange(
+        self.connector = StandardTestnetExchange(
             client_config_map,
             "0x1234567890123456789012345678901234567890",  # Mock wallet address
             "0xabcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef",  # Mock private key
@@ -54,7 +54,7 @@ class TestSomniaAPIOrderBookDataSource(IsolatedAsyncioWrapperTestCase):
         self.throttler = AsyncThrottler(CONSTANTS.RATE_LIMITS)
         self.time_synchronizer = TimeSynchronizer()
         self.time_synchronizer.add_time_offset_ms_sample(1000)
-        self.ob_data_source = SomniaAPIOrderBookDataSource(
+        self.ob_data_source = StandardTestnetAPIOrderBookDataSource(
             trading_pairs=[self.trading_pair],
             connector=self.connector,
             api_factory=self.connector._web_assistants_factory,
@@ -123,7 +123,7 @@ class TestSomniaAPIOrderBookDataSource(IsolatedAsyncioWrapperTestCase):
         self.assertIsNotNone(order_book)
         self.assertEqual(order_book.trading_pair, self.trading_pair)
 
-    @patch("hummingbot.connector.exchange.somnia.somnia_api_order_book_data_source.standardweb3")
+    @patch("hummingbot.connector.exchange.standard_testnet.standard_testnet_api_order_book_data_source.standardweb3")
     def test_standardweb3_order_book_fetch(self, mock_standardweb3):
         """Test order book fetching via StandardWeb3"""
         mock_client = MagicMock()
@@ -153,7 +153,7 @@ class TestSomniaAPIOrderBookDataSource(IsolatedAsyncioWrapperTestCase):
             self.assertIn("bids", result)
             self.assertIn("asks", result)
 
-    @patch("hummingbot.connector.exchange.somnia.somnia_api_order_book_data_source.standardweb3")
+    @patch("hummingbot.connector.exchange.standard_testnet.standard_testnet_api_order_book_data_source.standardweb3")
     def test_dual_fallback_mechanism(self, mock_standardweb3):
         """Test the dual fallback mechanism: StandardWeb3 primary + REST backup"""
         # Configure StandardWeb3 to fail

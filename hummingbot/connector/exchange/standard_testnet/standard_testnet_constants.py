@@ -6,7 +6,7 @@ from typing import Dict, List
 from hummingbot.core.api_throttler.data_types import RateLimit
 
 # Exchange information
-EXCHANGE_NAME = "somnia"
+EXCHANGE_NAME = "standard-testnet"
 DEFAULT_DOMAIN = "mainnet"  # or "testnet"
 
 # Network configuration

@@ -1,10 +1,10 @@
-# Somnia Testnet Configuration
+# Standard Testnet Testnet Configuration
 
 ## Checklist
 - [x] Chain ID: 50312
-- [x] Native token: STT (Somnia Test Token)
-- [x] Block explorer URL: https://testnet.somnia.network/
-- [x] RPC endpoint: https://dream-rpc.somnia.network
+- [x] Native token: STT (Standard Testnet Test Token)
+- [x] Block explorer URL: https://testnet.standard-testnet.network/
+- [x] RPC endpoint: https://dream-rpc.standard-testnet.network
 - [x] Exchange ID: standard-exchange (GraphQL identifier)
 - [x] GraphQL API URL: https://haifu-release-api.up.railway.app/graphql
 - [ ] WebSocket endpoints: [Not found in API - likely contract-based]
@@ -16,19 +16,19 @@
 ## Details
 
 ### Chain Name
-Somnia Testnet (Shannon)
+Standard Testnet Testnet (Shannon)
 
 ### Chain ID
 50312
 
 ### Native Token
-STT (Somnia Test Token)
+STT (Standard Testnet Test Token)
 
 ### Block Explorer
-https://testnet.somnia.network/
+https://testnet.standard-testnet.network/
 
 ### RPC Endpoint
-https://dream-rpc.somnia.network
+https://dream-rpc.standard-testnet.network
 
 ### Exchange ID
 `standard-exchange` (GraphQL identifier)
@@ -42,7 +42,7 @@ Not found in API exploration. The Haifu exchange appears to use a hybrid model w
 - Live updates come through StandardClient event system
 - No WebSocket subscriptions found in the GraphQL schema
 
-After further research, we discovered that Somnia exchange uses the Standard Exchange protocol with WebSocket endpoints at `https://ws3-somnia-testnet-ponder-release.standardweb3.com`
+After further research, we discovered that Standard Testnet exchange uses the Standard Exchange protocol with WebSocket endpoints at `https://ws3-standard-testnet-testnet-ponder-release.standardweb3.com`
 
 ### EIP-712 Domain Config
 Not documented. Reverse engineer from contract or dApp, or request from team.
@@ -77,6 +77,6 @@ No explicit rate limits found in GraphQL API. Most operations appear to be on-ch
 Not documented in the GraphQL API. Likely encoded in the smart contracts. Needs to be extracted from contract analysis or dApp interface.
 
 ### GraphQL Queries
-See detailed GraphQL query collection in `/docs/somnia_graphql_queries.md`
+See detailed GraphQL query collection in `/docs/standard-testnet_graphql_queries.md`
 
 ---

@@ -19,7 +19,7 @@ class Account:
         return cls(private_key)
 
 
-class SomniaAuth(AuthBase):
+class StandardTestnetAuth(AuthBase):
     """
     Authentication class for Somnia exchange using wallet private key.
     """
