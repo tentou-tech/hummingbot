@@ -1,0 +1,31 @@
+# Custom Hummingbot Trading Bot with Somnia Connector
+FROM hummingbot/hummingbot:latest
+
+# Set working directory
+WORKDIR /home/hummingbot
+
+# Copy your custom Hummingbot source with Somnia connector
+COPY . /home/hummingbot/hummingbot_source
+
+# Install additional dependencies for Somnia connector
+RUN pip install --no-cache-dir \
+    standardweb3 \
+    web3 \
+    eth-account \
+    requests
+
+# Copy Somnia connector to the right location
+RUN cp -r /home/hummingbot/hummingbot_source/hummingbot/connector/exchange/somnia /opt/conda/envs/hummingbot/lib/python3.10/site-packages/hummingbot/connector/exchange/ && \
+    cp -r /home/hummingbot/hummingbot_source/hummingbot/connector/gateway/somnia /opt/conda/envs/hummingbot/lib/python3.10/site-packages/hummingbot/connector/gateway/
+
+# Ensure proper permissions
+RUN chmod -R 755 /opt/conda/envs/hummingbot/lib/python3.10/site-packages/hummingbot/connector/
+
+# Verify Somnia connector is available
+RUN /opt/conda/envs/hummingbot/bin/python -c "from hummingbot.connector.exchange.somnia.somnia_exchange import SomniaExchange; print('Somnia connector installed successfully!')"
+
+# Clean up
+RUN rm -rf /home/hummingbot/hummingbot_source
+
+# Use the default bot startup
+CMD ["bin/hummingbot_quickstart.py"]

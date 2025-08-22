@@ -1,0 +1,30 @@
+# Custom Hummingbot API with Somnia Connector
+FROM hummingbot/hummingbot-api:latest
+
+# Set working directory
+WORKDIR /hummingbot-api
+
+# Copy your custom Hummingbot source with Somnia connector
+COPY . /hummingbot-api/hummingbot
+
+# Install additional dependencies for Somnia connector
+RUN pip install --no-cache-dir \
+    standardweb3 \
+    web3 \
+    eth-account \
+    requests
+
+# Ensure proper permissions
+RUN chmod -R 755 /hummingbot-api/hummingbot
+
+# Set Python path to include custom Hummingbot
+ENV PYTHONPATH=/hummingbot-api:/hummingbot-api/hummingbot
+
+# Verify Somnia connector is available
+RUN python -c "from hummingbot.connector.exchange.somnia.somnia_exchange import SomniaExchange; print('Somnia connector installed successfully!')"
+
+# Expose API port
+EXPOSE 8000
+
+# Use the default API startup command from base image
+# CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
