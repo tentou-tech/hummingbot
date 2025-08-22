@@ -1,2 +1,2 @@
 eip712-structs
-standardweb3>=0.0.4
+standardweb3==0.0.6
