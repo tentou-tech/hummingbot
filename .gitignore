@@ -99,3 +99,4 @@ coverage.xml
 
 .venv/
 .serena/
+.github/copilot-instructions.md
