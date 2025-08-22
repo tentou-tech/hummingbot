@@ -79,14 +79,20 @@ def start(self):
         maker_assets: Tuple[str, str] = trading_pair.split("-")
         market_names: List[Tuple[str, List[str]]] = [(exchange, [trading_pair])]
         self.initialize_markets(market_names)
-        maker_data = [self.connector_manager.connectors[exchange], trading_pair] + list(maker_assets)
+        
+        # Update connector with trading pairs if it supports dynamic updates
+        connector = self.connector_manager.connectors[exchange]
+        if hasattr(connector, 'update_trading_pairs'):
+            connector.update_trading_pairs([trading_pair])
+        
+        maker_data = [connector, trading_pair] + list(maker_assets)
         self.market_trading_pair_tuples = [MarketTradingPairTuple(*maker_data)]
 
         asset_price_delegate = None
         if price_source == "external_market":
             asset_trading_pair: str = price_source_market
             ext_market = create_paper_trade_market(price_source_exchange, self.client_config_map, [asset_trading_pair])
-            self.connector_manager.connectors[price_source_exchange]: ExchangeBase = ext_market
+            self.connector_manager.connectors[price_source_exchange] = ext_market
             asset_price_delegate = OrderBookAssetPriceDelegate(ext_market, asset_trading_pair)
         elif price_source == "custom_api":
             asset_price_delegate = APIAssetPriceDelegate(self.markets[exchange], price_source_custom_api,

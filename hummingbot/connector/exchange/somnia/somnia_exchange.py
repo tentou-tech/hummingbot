@@ -23,7 +23,7 @@ from hummingbot.connector.utils import combine_to_hb_trading_pair
 from hummingbot.core.data_type.common import OrderType, TradeType
 from hummingbot.core.data_type.in_flight_order import InFlightOrder, OrderState, OrderUpdate, TradeUpdate
 from hummingbot.core.data_type.order_book_tracker_data_source import OrderBookTrackerDataSource
-from hummingbot.core.data_type.trade_fee import AddedToCostTradeFee, TradeFeeBase
+from hummingbot.core.data_type.trade_fee import AddedToCostTradeFee, TradeFeeBase, TokenAmount
 from hummingbot.core.data_type.user_stream_tracker_data_source import UserStreamTrackerDataSource
 from hummingbot.core.network_iterator import NetworkStatus
 from hummingbot.core.utils.estimate_fee import build_trade_fee
@@ -38,6 +38,11 @@ try:
     from standardweb3 import StandardClient
 except ImportError:
     StandardClient = None
+
+try:
+    import pandas as pd
+except ImportError:
+    pd = None
 
 
 class SomniaExchange(ExchangePyBase):
@@ -94,8 +99,12 @@ class SomniaExchange(ExchangePyBase):
         trading_required: bool = True,
         domain: str = CONSTANTS.DEFAULT_DOMAIN,
     ):
-        self.logger().info("DEBUG: SomniaExchange.__init__ called")
-        self.logger().info(f"DEBUG: SomniaExchange.__init__ called with trading_pairs = {trading_pairs}")
+        self.logger().info("=== DEBUG: SomniaExchange.__init__ STARTING ===")
+        self.logger().info(f"DEBUG: Constructor called with parameters:")
+        self.logger().info(f"  - trading_pairs = {trading_pairs} (type: {type(trading_pairs)})")
+        self.logger().info(f"  - trading_required = {trading_required} (type: {type(trading_required)})")
+        self.logger().info(f"  - somnia_wallet_address = {somnia_wallet_address}")
+        self.logger().info(f"  - domain = {domain}")
         
         # Store configuration
         self._private_key = somnia_private_key
@@ -104,7 +113,16 @@ class SomniaExchange(ExchangePyBase):
         self._trading_required = trading_required
         self._trading_pairs = trading_pairs or []
         
-        self.logger().info(f"DEBUG: After assignment, self._trading_pairs = {self._trading_pairs}")
+        self.logger().info(f"DEBUG: After assignment:")
+        self.logger().info(f"  - self._trading_pairs = {self._trading_pairs} (len: {len(self._trading_pairs)})")
+        self.logger().info(f"  - self._trading_required = {self._trading_required}")
+        
+        # Log the call stack to understand who's creating this connector
+        import traceback
+        stack = traceback.format_stack()
+        self.logger().info("DEBUG: Connector creation call stack (last 5 frames):")
+        for i, frame in enumerate(stack[-5:]):
+            self.logger().info(f"  Frame {i}: {frame.strip()}")
         
         # Initialize StandardWeb3 client if available
         self._standard_client = None
@@ -191,8 +209,9 @@ class SomniaExchange(ExchangePyBase):
         if hasattr(self, '_orderbook_ds') and self._orderbook_ds:
             self._orderbook_ds._connector = self
         
-        # Real-time balance updates
-        self.real_time_balance_update = True
+        # Real-time balance updates - DEX connectors don't submit all balance updates
+        # Instead they only update on position changes (not cancel), so we need to fetch periodically
+        self.real_time_balance_update = False
         
         self.logger().info("DEBUG: SomniaExchange.__init__ completed successfully")
 
@@ -330,12 +349,22 @@ class SomniaExchange(ExchangePyBase):
             Dictionary containing exchange market information
         """
         try:
-            self.logger().info("Building Somnia exchange market info...")
+            self.logger().info("=== DEBUG: build_exchange_market_info STARTING ===")
+            self.logger().info(f"  Current trading_pairs: {self._trading_pairs}")
+            self.logger().info(f"  trading_required: {self._trading_required}")
             
             # Get available trading pairs and market data
+            self.logger().info("DEBUG: About to call _get_symbols()")
             symbols = await self._get_symbols()
+            self.logger().info(f"DEBUG: _get_symbols() returned {len(symbols)} symbols")
+            
+            self.logger().info("DEBUG: About to call _get_contracts()")
             contracts = await self._get_contracts()
+            self.logger().info(f"DEBUG: _get_contracts() returned {len(contracts)} contracts")
+            
+            self.logger().info("DEBUG: About to call _get_fee_rates()")
             fee_rates = await self._get_fee_rates()
+            self.logger().info(f"DEBUG: _get_fee_rates() returned: {fee_rates}")
             
             exchange_info = {
                 "symbols": symbols,
@@ -346,18 +375,22 @@ class SomniaExchange(ExchangePyBase):
             }
             
             # Initialize trading rules from symbols data
-            self.logger().info("Initializing trading rules from symbols data...")
+            self.logger().info("DEBUG: About to initialize trading rules from symbols data...")
             await self._initialize_trading_rules_from_symbols(symbols)
+            self.logger().info("DEBUG: Trading rules initialization completed")
             
             # Initialize account balances
-            self.logger().info("Initializing account balances...")
+            self.logger().info("DEBUG: About to initialize account balances...")
             await self._update_balances()
+            self.logger().info("DEBUG: Account balances initialization completed")
             
-            self.logger().info(f"Built exchange info with {len(symbols)} symbols and {len(contracts)} contracts")
+            self.logger().info(f"=== DEBUG: build_exchange_market_info COMPLETED ===")
+            self.logger().info(f"  Built exchange info with {len(symbols)} symbols and {len(contracts)} contracts")
             return exchange_info
             
         except Exception as e:
-            self.logger().error(f"Failed to build exchange market info: {e}")
+            self.logger().error(f"CRITICAL: Failed to build exchange market info: {e}")
+            self.logger().exception("Full exception details:")
             # Return minimal info to prevent startup failure
             return {
                 "symbols": [],
@@ -475,41 +508,67 @@ class SomniaExchange(ExchangePyBase):
             List of symbol information dictionaries
         """
         try:
-            self.logger().info(f"DEBUG: _get_symbols called with self._trading_pairs = {self._trading_pairs}")
+            self.logger().info(f"DEBUG: _get_symbols called with:")
+            self.logger().info(f"  - self._trading_pairs = {self._trading_pairs}")
+            self.logger().info(f"  - self._trading_required = {self._trading_required}")
+            self.logger().info(f"  - len(self._trading_pairs) = {len(self._trading_pairs) if self._trading_pairs else 0}")
             
-            # For now, return known trading pairs
-            # This can be enhanced to fetch from actual API
+            # If this is a non-trading connector (used for connection testing), 
+            # return empty list to avoid any processing
+            if not self._trading_required and not self._trading_pairs:
+                self.logger().info("Non-trading connector mode - returning empty symbols list for connection testing")
+                return []
+            
+            # Use configured trading pairs
             symbols = []
-            for trading_pair in self._trading_pairs:
-                base, quote = trading_pair.split("-")
-                symbols.append({
-                    "symbol": trading_pair,
-                    "baseAsset": base,
-                    "quoteAsset": quote,
-                    "status": "TRADING",
-                    "baseAssetPrecision": 8,
-                    "quotePrecision": 8,
-                    "orderTypes": ["LIMIT", "MARKET"],
-                })
+            self.logger().info(f"Processing {len(self._trading_pairs)} trading pairs...")
             
-            # If no trading pairs are configured yet, add default STT-USDC
-            if not symbols:
-                self.logger().info("No trading pairs configured, adding default STT-USDC")
-                symbols.append({
-                    "symbol": "STT-USDC",
-                    "baseAsset": "STT",
-                    "quoteAsset": "USDC",
-                    "status": "TRADING",
-                    "baseAssetPrecision": 8,
-                    "quotePrecision": 8,
-                    "orderTypes": ["LIMIT", "MARKET"],
-                })
+            for i, trading_pair in enumerate(self._trading_pairs):
+                self.logger().info(f"  Processing trading pair {i+1}/{len(self._trading_pairs)}: '{trading_pair}'")
+                try:
+                    if "-" not in trading_pair:
+                        self.logger().error(f"  Invalid trading pair format (missing '-'): '{trading_pair}'")
+                        continue
+                        
+                    base, quote = trading_pair.split("-", 1)  # Split only on first dash
+                    self.logger().info(f"  Split '{trading_pair}' -> base: '{base}', quote: '{quote}'")
+                    
+                    if not base or not quote:
+                        self.logger().error(f"  Empty base or quote after split: base='{base}', quote='{quote}'")
+                        continue
+                    
+                    symbol_info = {
+                        "symbol": trading_pair,
+                        "baseAsset": base,
+                        "quoteAsset": quote,
+                        "status": "TRADING",
+                        "baseAssetPrecision": 8,
+                        "quotePrecision": 8,
+                        "orderTypes": ["LIMIT", "MARKET"],
+                    }
+                    symbols.append(symbol_info)
+                    self.logger().info(f"  Successfully created symbol info for '{trading_pair}'")
+                    
+                except ValueError as e:
+                    self.logger().error(f"  ValueError processing trading pair '{trading_pair}': {e}")
+                except Exception as e:
+                    self.logger().error(f"  Unexpected error processing trading pair '{trading_pair}': {e}")
             
-            self.logger().info(f"Retrieved {len(symbols)} symbols")
+            # In trading mode, we should have symbols configured by the strategy
+            if not symbols and self._trading_required:
+                self.logger().error("CRITICAL: Trading mode requires configured trading pairs but none were successfully processed")
+                self.logger().error(f"  Original trading pairs: {self._trading_pairs}")
+                self.logger().error("  This indicates a configuration problem - the strategy should provide valid trading pairs")
+                # Don't hardcode - return empty and let the system handle the error properly
+                return []
+            
+            self.logger().info(f"Successfully processed {len(symbols)} symbols: {[s['symbol'] for s in symbols]}")
             return symbols
             
         except Exception as e:
-            self.logger().error(f"Failed to get symbols: {e}")
+            self.logger().error(f"CRITICAL: Exception in _get_symbols: {e}")
+            self.logger().exception("Full exception details:")
+            # Don't hardcode a fallback - return empty and let caller handle
             return []
 
     async def _get_contracts(self) -> Dict[str, Any]:
@@ -631,6 +690,89 @@ class SomniaExchange(ExchangePyBase):
         """
         return [OrderType.LIMIT, OrderType.MARKET]
 
+    def update_trading_pairs(self, trading_pairs: List[str]):
+        """
+        Update trading pairs after connector initialization.
+        This method allows the connector to be updated with trading pairs from the strategy.
+        
+        Args:
+            trading_pairs: List of trading pairs to support
+        """
+        self.logger().info("=== DEBUG: update_trading_pairs CALLED ===")
+        self.logger().info(f"  Current trading_pairs: {self._trading_pairs}")
+        self.logger().info(f"  New trading_pairs: {trading_pairs}")
+        self.logger().info(f"  trading_required: {self._trading_required}")
+        
+        # Log call stack to see who's calling this
+        import traceback
+        stack = traceback.format_stack()
+        self.logger().info("DEBUG: update_trading_pairs call stack (last 3 frames):")
+        for i, frame in enumerate(stack[-3:]):
+            self.logger().info(f"  Frame {i}: {frame.strip()}")
+        
+        if trading_pairs and trading_pairs != self._trading_pairs:
+            self.logger().info(f"UPDATING: Trading pairs changing from {self._trading_pairs} to {trading_pairs}")
+            self._trading_pairs = trading_pairs
+            
+            # Update order book data source if it exists
+            if hasattr(self, '_order_book_tracker') and self._order_book_tracker:
+                self.logger().info("DEBUG: Updating order book tracker data source...")
+                if hasattr(self._order_book_tracker, 'data_source') and self._order_book_tracker.data_source:
+                    self._order_book_tracker.data_source.update_trading_pairs(trading_pairs)
+                    self.logger().info("DEBUG: Order book data source updated")
+                else:
+                    self.logger().warning("DEBUG: Order book tracker has no data_source")
+            else:
+                self.logger().warning("DEBUG: No order book tracker found")
+            
+            # Re-initialize trading rules for new pairs
+            try:
+                import asyncio
+                if asyncio.get_event_loop().is_running():
+                    self.logger().info("DEBUG: Event loop running, creating task for trading rules update")
+                    asyncio.create_task(self._update_trading_rules_for_new_pairs(trading_pairs))
+                else:
+                    # If no event loop is running, schedule for later
+                    self.logger().info("DEBUG: No event loop running, trading rules will be updated when connector starts")
+            except Exception as e:
+                self.logger().warning(f"DEBUG: Could not update trading rules immediately: {e}")
+        elif not trading_pairs:
+            self.logger().warning(f"SKIPPING: Empty trading_pairs provided: {trading_pairs}")
+        elif trading_pairs == self._trading_pairs:
+            self.logger().info(f"SKIPPING: Trading pairs unchanged: {trading_pairs}")
+        else:
+            self.logger().warning(f"SKIPPING: Unexpected condition - trading_pairs: {trading_pairs}, current: {self._trading_pairs}")
+        
+        self.logger().info("=== DEBUG: update_trading_pairs COMPLETED ===")
+        self.logger().info(f"  Final trading_pairs: {self._trading_pairs}")
+
+    async def _update_trading_rules_for_new_pairs(self, trading_pairs: List[str]):
+        """Update trading rules for newly added trading pairs."""
+        try:
+            symbols = []
+            for trading_pair in trading_pairs:
+                base, quote = trading_pair.split("-")
+                symbols.append({
+                    "symbol": trading_pair,
+                    "baseAsset": base,
+                    "quoteAsset": quote,
+                    "status": "TRADING",
+                    "baseAssetPrecision": 8,
+                    "quotePrecision": 8,
+                    "orderTypes": ["LIMIT", "MARKET"],
+                })
+            
+            await self._initialize_trading_rules_from_symbols(symbols)
+            self.logger().info(f"Updated trading rules for {len(trading_pairs)} trading pairs")
+            
+        except Exception as e:
+            self.logger().error(f"Failed to update trading rules for new pairs: {e}")
+
+    @property
+    def trading_pairs(self) -> List[str]:
+        """Get current trading pairs."""
+        return self._trading_pairs
+
     def _is_request_exception_related_to_time_synchronizer(self, request_exception: Exception) -> bool:
         """
         Check if request exception is related to time synchronization.
@@ -690,17 +832,24 @@ class SomniaExchange(ExchangePyBase):
             OrderBookTrackerDataSource instance
         """
         self.logger().info("DEBUG: _create_order_book_data_source() called")
-        self.logger().info(f"DEBUG: Creating order book data source with trading_pairs: {self._trading_pairs}")
+        self.logger().info(f"DEBUG: Current trading_pairs: {self._trading_pairs}")
+        self.logger().info(f"DEBUG: trading_required: {self._trading_required}")
+        
+        # Use the configured trading pairs - don't hardcode anything
+        effective_trading_pairs = self._trading_pairs.copy() if self._trading_pairs else []
+        self.logger().info(f"DEBUG: Creating order book data source with trading_pairs: {effective_trading_pairs}")
         
         try:
             data_source = SomniaAPIOrderBookDataSource(
-                trading_pairs=self._trading_pairs,
+                trading_pairs=effective_trading_pairs,
                 connector=self,  # Pass self reference like other exchanges
                 api_factory=self._web_assistants_factory,
                 domain=self._domain,
                 throttler=self._throttler,
             )
             self.logger().info("DEBUG: Order book data source created successfully")
+            # Store reference to update later if needed
+            self._orderbook_ds = data_source
             return data_source
         except Exception as e:
             self.logger().error(f"DEBUG: Failed to create order book data source: {e}")
@@ -974,7 +1123,7 @@ class SomniaExchange(ExchangePyBase):
 
     async def _place_cancel(self, order_id: str, tracked_order: InFlightOrder) -> str:
         """
-        Cancel an order on the exchange using direct smart contract interaction.
+        Cancel an order on the exchange using StandardWeb3 cancel_orders method with on-chain fallback.
         
         Args:
             order_id: Client order ID
@@ -984,6 +1133,45 @@ class SomniaExchange(ExchangePyBase):
             Exchange cancellation ID (transaction hash)
         """
         try:
+            # Method 1: Use StandardWeb3 cancel_orders (preferred method)
+            if self._standard_client and order_id in self._order_id_map:
+                order_info = self._order_id_map[order_id]
+                base_address = order_info['base_address']
+                quote_address = order_info['quote_address']
+                is_bid = order_info['is_bid']
+                blockchain_order_id = order_info['blockchain_order_id']
+                
+                self.logger().info(f"Using StandardWeb3 cancel_orders for: {order_id} -> blockchain_order_id: {blockchain_order_id}")
+                
+                # Use transaction lock to prevent nonce conflicts (same as order placement)
+                async with self._transaction_lock:
+                    # Get current nonce for the account to avoid "nonce too low" errors (same as order placement)
+                    current_nonce = await self._get_current_nonce()
+                    
+                    # Prepare cancel_order_data structure for StandardWeb3
+                    cancel_order_data = [{
+                        "base": base_address,
+                        "quote": quote_address,
+                        "isBid": is_bid,  # Use camelCase as expected by StandardWeb3 API
+                        "orderId": blockchain_order_id,  # Use 'orderId' (camelCase) as expected by StandardWeb3
+                    }]
+                    
+                    try:
+                        # Use StandardWeb3 cancel_orders method (without nonce parameter - it manages its own nonce)
+                        cancel_tx_hash = await self._standard_client.cancel_orders(cancel_order_data)
+                        
+                        # Clean up the stored order info
+                        del self._order_id_map[order_id]
+                        
+                        self.logger().info(f"Order cancelled via StandardWeb3: {order_id} -> {cancel_tx_hash}")
+                        return cancel_tx_hash
+                        
+                    except Exception as e:
+                        self.logger().warning(f"StandardWeb3 cancel_orders failed for {order_id}: {e}")
+                        # Continue to fallback method below
+            
+            # Method 2: Direct on-chain contract interaction (fallback)
+            
             # Check if we have the order information stored
             if order_id in self._order_id_map:
                 order_info = self._order_id_map[order_id]
@@ -991,8 +1179,6 @@ class SomniaExchange(ExchangePyBase):
                 quote_address = order_info['quote_address']
                 is_bid = order_info['is_bid']
                 blockchain_order_id = order_info['blockchain_order_id']
-                
-                self.logger().info(f"Using stored order info for cancellation: {order_id} -> blockchain_order_id: {blockchain_order_id}")
                 
                 # Cancel order using direct contract interaction
                 cancel_tx_hash = await self._cancel_order_on_contract(
@@ -1009,7 +1195,7 @@ class SomniaExchange(ExchangePyBase):
                 return cancel_tx_hash
             
             else:
-                # Fallback: try to extract from trading pair and exchange order ID
+                # Extract order information from tracked_order
                 trading_pair = tracked_order.trading_pair
                 base, quote = utils.split_trading_pair(trading_pair)
                 
@@ -1054,7 +1240,7 @@ class SomniaExchange(ExchangePyBase):
             
         except Exception as e:
             self.logger().error(f"Error cancelling order {order_id}: {e}")
-            # Fall back to local cancellation if contract cancellation fails
+            # Fall back to local cancellation if all methods fail
             cancellation_id = f"cancelled_{order_id}"
             # Clean up the stored order info if it exists
             if order_id in self._order_id_map:
@@ -1273,57 +1459,95 @@ class SomniaExchange(ExchangePyBase):
     async def _update_balances(self):
         """
         Update account balances using on-chain Web3 calls with API fallback.
+        This method is called by the balance command to fetch current balances.
         """
         try:
+            self.logger().info("=== Starting balance update ===")
+            
             if not self._standard_client:
+                self.logger().error("StandardWeb3 client not available - cannot fetch balances")
                 return
                 
             # Get all relevant tokens including native token
             tokens = set()
-            self.logger().info(f"Trading pairs configured: {self._trading_pairs}")
             
             if not self._trading_pairs:
-                # Fallback: add default tokens if no trading pairs configured
-                self.logger().warning("No trading pairs configured, using default tokens STT and USDC")
-                tokens.add("STT")
-                tokens.add("USDC")
+                # In non-trading mode, skip balance updates to avoid unnecessary warnings
+                if not self._trading_required:
+                    self.logger().info("Non-trading connector mode - skipping balance updates")
+                    return
+                else:
+                    # In trading mode, we should have trading pairs configured by the strategy
+                    self.logger().warning("Trading mode requires configured trading pairs for balance updates")
+                    # For balance command, try to fetch common tokens anyway
+                    tokens = {"STT", "USDC", "SOMNIA"}
+                    self.logger().info(f"Using default tokens for balance check: {tokens}")
             else:
                 for trading_pair in self._trading_pairs:
                     base, quote = utils.split_trading_pair(trading_pair)
-                    self.logger().info(f"Split {trading_pair} -> base: {base}, quote: {quote}")
+                    self.logger().debug(f"Split {trading_pair} -> base: {base}, quote: {quote}")
                     tokens.add(base)
                     tokens.add(quote)
+                    
+                # Always include native SOMNIA token for trading mode
+                if self._trading_required:
+                    tokens.add("SOMNIA")
             
-            # Always include native SOMNIA token
-            tokens.add("SOMNIA")
-            
-            self.logger().info(f"Fetching balances for tokens: {tokens}")
+            self.logger().info(f"Fetching balances for tokens: {sorted(tokens)}")
             
             # Fetch balances using Web3 (primary method)
             balances = {}
-            for token in tokens:
+            successful_fetches = 0
+            failed_fetches = 0
+            
+            for token in sorted(tokens):
                 try:
+                    self.logger().debug(f"Fetching balance for {token}...")
                     balance = await self._get_token_balance_web3(token)
                     balances[token] = balance
-                    self.logger().info(f"Web3 balance for {token}: {balance}")
+                    successful_fetches += 1
+                    
+                    # Show balance with appropriate formatting
+                    if balance > Decimal("0"):
+                        self.logger().info(f"✓ {token}: {balance}")
+                    else:
+                        self.logger().debug(f"✓ {token}: {balance} (zero balance)")
+                        
                 except Exception as e:
-                    self.logger().warning(f"Web3 balance failed for {token}: {e}, trying API fallback...")
+                    self.logger().warning(f"✗ Web3 balance failed for {token}: {e}")
+                    failed_fetches += 1
+                    
                     try:
+                        self.logger().debug(f"Trying API fallback for {token}...")
                         balance = await self._get_token_balance_api(token)
                         balances[token] = balance
-                        self.logger().info(f"API balance for {token}: {balance}")
+                        self.logger().info(f"✓ {token}: {balance} (via API)")
                     except Exception as api_error:
-                        self.logger().error(f"Both Web3 and API balance failed for {token}: {api_error}")
+                        self.logger().error(f"✗ Both Web3 and API balance failed for {token}: {api_error}")
                         balances[token] = s_decimal_0
             
             # Update local balances
             self._account_balances = balances
             self._account_available_balances = balances.copy()
             
-            self.logger().info(f"Updated balances: {balances}")
+            # Summary
+            total_tokens = len(tokens)
+            self.logger().info(f"=== Balance update completed ===")
+            self.logger().info(f"Successfully fetched: {successful_fetches}/{total_tokens} tokens")
+            if failed_fetches > 0:
+                self.logger().warning(f"Failed to fetch: {failed_fetches}/{total_tokens} tokens")
+            
+            # Log non-zero balances for user visibility
+            non_zero_balances = {token: balance for token, balance in balances.items() if balance > s_decimal_0}
+            if non_zero_balances:
+                self.logger().info(f"Non-zero balances: {non_zero_balances}")
+            else:
+                self.logger().info("All balances are zero")
             
         except Exception as e:
-            self.logger().error(f"Error updating balances: {e}")
+            self.logger().error(f"Critical error updating balances: {e}")
+            self.logger().exception("Full error details:")
+            # Don't raise - let the system continue with existing balances
 
     async def _get_token_balance_web3(self, token: str) -> Decimal:
         """
@@ -1488,7 +1712,7 @@ class SomniaExchange(ExchangePyBase):
 
     async def _all_trade_updates_for_order(self, order: InFlightOrder) -> List[TradeUpdate]:
         """
-        Get all trade updates for an order.
+        Get all trade updates for an order using StandardWeb3 trade history.
         
         Args:
             order: InFlightOrder instance
@@ -1496,9 +1720,110 @@ class SomniaExchange(ExchangePyBase):
         Returns:
             List of TradeUpdate instances
         """
-        # Implementation would query the exchange for trade updates related to this order
-        # For now, return empty list - this would be populated by real-time updates
-        return []
+        try:
+            if not self._standard_client:
+                return []
+            
+            # Fetch account trade history using StandardWeb3
+            trades_response = await self._standard_client.fetch_account_trade_history_paginated_with_limit(
+                address=self._wallet_address,
+                limit=100,  # Get recent trades
+                page=1
+            )
+            
+            trade_updates = []
+            if trades_response and "trades" in trades_response:
+                for trade in trades_response["trades"]:
+                    # Check if this trade is related to our order
+                    # This might depend on the exact response format from StandardWeb3
+                    if self._is_trade_for_order(trade, order):
+                        trade_update = self._parse_trade_update(trade, order)
+                        if trade_update:
+                            trade_updates.append(trade_update)
+            
+            return trade_updates
+            
+        except Exception as e:
+            self.logger().error(f"Error fetching trade updates for order {order.client_order_id}: {e}")
+            return []
+
+    def _is_trade_for_order(self, trade: Dict[str, Any], order: InFlightOrder) -> bool:
+        """
+        Check if a trade is related to a specific order.
+        
+        Args:
+            trade: Trade data from StandardWeb3
+            order: InFlightOrder instance
+            
+        Returns:
+            True if trade is for this order
+        """
+        try:
+            # Check if the trade transaction hash matches our order exchange ID
+            trade_tx_hash = trade.get("tx_hash") or trade.get("transaction_hash")
+            if trade_tx_hash == order.exchange_order_id:
+                return True
+            
+            # Alternative: check if trade matches order details (trading pair, side, etc.)
+            trading_pair = f"{trade.get('base_symbol', '')}-{trade.get('quote_symbol', '')}"
+            if trading_pair == order.trading_pair:
+                # Additional checks could be added here for more precision
+                return True
+            
+            return False
+            
+        except Exception as e:
+            self.logger().warning(f"Error checking if trade is for order: {e}")
+            return False
+
+    def _parse_trade_update(self, trade: Dict[str, Any], order: InFlightOrder) -> Optional[TradeUpdate]:
+        """
+        Parse trade data into TradeUpdate format.
+        
+        Args:
+            trade: Trade data from StandardWeb3
+            order: InFlightOrder instance
+            
+        Returns:
+            TradeUpdate instance or None
+        """
+        try:
+            # Extract trade information
+            fill_price = Decimal(str(trade.get("price", "0")))
+            fill_quantity = Decimal(str(trade.get("quantity", "0")))
+            
+            # Get fee information if available
+            fee_amount = Decimal(str(trade.get("fee", "0")))
+            fee_currency = trade.get("fee_currency", order.quote_asset)
+            
+            # Create trade fee
+            trade_fee = AddedToCostTradeFee(
+                flat_fees=[TokenAmount(token=fee_currency, amount=fee_amount)]
+            )
+            
+            # Get trade timestamp
+            trade_time = trade.get("timestamp", time.time())
+            if isinstance(trade_time, str):
+                # Parse timestamp if it's a string
+                try:
+                    trade_time = float(trade_time)
+                except ValueError:
+                    trade_time = time.time()
+            
+            return TradeUpdate(
+                trading_pair=order.trading_pair,
+                fill_timestamp=trade_time,
+                fill_price=fill_price,
+                fill_base_amount=fill_quantity,
+                fee=trade_fee,
+                trade_id=trade.get("trade_id", f"trade_{int(trade_time)}"),
+                exchange_order_id=order.exchange_order_id,
+                client_order_id=order.client_order_id,
+            )
+            
+        except Exception as e:
+            self.logger().error(f"Error parsing trade update: {e}")
+            return None
 
     async def _request_order_status(self, tracked_order: InFlightOrder) -> OrderUpdate:
         """
@@ -1809,6 +2134,257 @@ class SomniaExchange(ExchangePyBase):
             }
         
         self._trading_fees = trading_fees
+
+    async def _request_order_history(self) -> List[Dict[str, Any]]:
+        """
+        Request order history from the exchange using StandardWeb3 API.
+        
+        Returns:
+            List of order history data
+        """
+        try:
+            if not self._standard_client:
+                self.logger().warning("StandardWeb3 client not available for order history")
+                return []
+            
+            # Use StandardWeb3 to fetch account order history
+            self.logger().info(f"Fetching order history for address: {self._wallet_address}")
+            
+            # Fetch order history using StandardWeb3 client
+            try:
+                orders_response = await self._standard_client.fetch_account_order_history_paginated_with_limit(
+                    address=self._wallet_address,
+                    limit=100,  # Get last 100 orders
+                    page=1
+                )
+                
+                if orders_response and "orders" in orders_response:
+                    orders = orders_response["orders"]
+                    self.logger().info(f"Successfully fetched {len(orders)} orders from history")
+                    return orders
+                else:
+                    self.logger().info("No orders found in history response")
+                    return []
+                    
+            except Exception as e:
+                self.logger().warning(f"StandardWeb3 order history failed: {e}, trying alternative method...")
+                
+                # Fallback: Use REST API endpoints
+                rest_assistant = await self._web_assistants_factory.get_rest_assistant()
+                
+                # Use account orders endpoint from constants
+                orders_url = f"{CONSTANTS.STANDARD_API_URL}/api/orders/{self._wallet_address}/100/1"
+                
+                orders_response = await rest_assistant.execute_request(
+                    url=orders_url,
+                    method=RESTMethod.GET,
+                    throttler_limit_id=CONSTANTS.GET_ACCOUNT_ORDERS_PATH_URL
+                )
+                
+                if orders_response and isinstance(orders_response, dict):
+                    orders = orders_response.get("orders", [])
+                    self.logger().info(f"Successfully fetched {len(orders)} orders via REST API")
+                    return orders
+                else:
+                    self.logger().warning("REST API order history returned no valid data")
+                    return []
+                    
+        except Exception as e:
+            self.logger().error(f"Error requesting order history: {e}", exc_info=True)
+            return []
+
+    async def _request_trade_history(self) -> List[Dict[str, Any]]:
+        """
+        Request trade history from the exchange using StandardWeb3 API.
+        
+        Returns:
+            List of trade history data
+        """
+        try:
+            if not self._standard_client:
+                self.logger().warning("StandardWeb3 client not available for trade history")
+                return []
+            
+            # Use StandardWeb3 to fetch account trade history
+            self.logger().info(f"Fetching trade history for address: {self._wallet_address}")
+            
+            # Fetch trade history using StandardWeb3 client
+            try:
+                trades_response = await self._standard_client.fetch_account_trade_history_paginated_with_limit(
+                    address=self._wallet_address,
+                    limit=100,  # Get last 100 trades
+                    page=1
+                )
+                
+                if trades_response and "trades" in trades_response:
+                    trades = trades_response["trades"]
+                    self.logger().info(f"Successfully fetched {len(trades)} trades from history")
+                    return trades
+                else:
+                    self.logger().info("No trades found in history response")
+                    return []
+                    
+            except Exception as e:
+                self.logger().warning(f"StandardWeb3 trade history failed: {e}, trying alternative method...")
+                
+                # Fallback: Use REST API endpoints
+                rest_assistant = await self._web_assistants_factory.get_rest_assistant()
+                
+                # Use account trades endpoint from constants
+                trades_url = f"{CONSTANTS.STANDARD_API_URL}/api/tradehistory/{self._wallet_address}/100/1"
+                
+                trades_response = await rest_assistant.execute_request(
+                    url=trades_url,
+                    method=RESTMethod.GET,
+                    throttler_limit_id=CONSTANTS.GET_ACCOUNT_TRADES_PATH_URL
+                )
+                
+                if trades_response and isinstance(trades_response, dict):
+                    trades = trades_response.get("trades", [])
+                    self.logger().info(f"Successfully fetched {len(trades)} trades via REST API")
+                    return trades
+                else:
+                    self.logger().warning("REST API trade history returned no valid data")
+                    return []
+                    
+        except Exception as e:
+            self.logger().error(f"Error requesting trade history: {e}", exc_info=True)
+            return []
+
+    def get_order_history_df(self) -> Optional[Any]:
+        """
+        Get order history as a pandas DataFrame for the 'history' command.
+        
+        Returns:
+            DataFrame with order history or None if pandas not available
+        """
+        try:
+            if pd is None:
+                self.logger().error("pandas not available for order history DataFrame")
+                return None
+            
+            self.logger().info("Fetching order history for 'history' command...")
+            
+            # Fetch order history using async method
+            import asyncio
+            
+            try:
+                # Check if we're in an async context
+                loop = asyncio.get_event_loop()
+                if loop.is_running():
+                    # We're already in an async context, need to create a task
+                    # This is a synchronous method called from CLI, so we'll use a different approach
+                    order_history = []
+                    trade_history = []
+                    
+                    # Try to get from cache or recent data
+                    # In practice, the CLI should call async methods, but for compatibility:
+                    self.logger().info("Creating async task for history retrieval...")
+                    
+                    # Create tasks for both order and trade history
+                    async def fetch_histories():
+                        orders = await self._request_order_history()
+                        trades = await self._request_trade_history()
+                        return orders, trades
+                    
+                    # Create task and get result
+                    task = asyncio.create_task(fetch_histories())
+                    # Since we're in an event loop, we can't await here
+                    # We'll return a placeholder and log that async fetch is happening
+                    self.logger().info("Order history fetch initiated - check logs for results")
+                    
+                    # Return minimal DataFrame structure for now
+                    columns = [
+                        'symbol', 'order_id', 'timestamp', 'order_type', 'side', 
+                        'amount', 'price', 'status', 'trade_fee', 'exchange_order_id'
+                    ]
+                    df = pd.DataFrame(columns=columns)
+                    return df
+                    
+                else:
+                    # No event loop running, create one
+                    order_history = loop.run_until_complete(self._request_order_history())
+                    trade_history = loop.run_until_complete(self._request_trade_history())
+                    
+            except RuntimeError:
+                # No event loop exists, create one
+                order_history = asyncio.run(self._request_order_history())
+                trade_history = asyncio.run(self._request_trade_history())
+            
+            # Convert order history to DataFrame format
+            order_data = []
+            
+            # Process order history
+            for order in order_history:
+                try:
+                    order_entry = {
+                        'symbol': order.get('trading_pair', order.get('symbol', 'Unknown')),
+                        'order_id': order.get('order_id', order.get('id', 'Unknown')),
+                        'timestamp': order.get('timestamp', order.get('created_at', 'Unknown')),
+                        'order_type': order.get('order_type', order.get('type', 'Unknown')),
+                        'side': order.get('side', 'Unknown'),
+                        'amount': float(order.get('amount', order.get('quantity', 0))),
+                        'price': float(order.get('price', 0)),
+                        'status': order.get('status', 'Unknown'),
+                        'trade_fee': float(order.get('fee', 0)),
+                        'exchange_order_id': order.get('tx_hash', order.get('transaction_hash', 'Unknown'))
+                    }
+                    order_data.append(order_entry)
+                except Exception as e:
+                    self.logger().warning(f"Error processing order entry: {e}")
+                    continue
+            
+            # Process trade history and add to order data
+            for trade in trade_history:
+                try:
+                    trade_entry = {
+                        'symbol': trade.get('trading_pair', trade.get('symbol', 'Unknown')),
+                        'order_id': trade.get('order_id', 'Trade'),
+                        'timestamp': trade.get('timestamp', trade.get('created_at', 'Unknown')),
+                        'order_type': 'TRADE',
+                        'side': trade.get('side', 'Unknown'),
+                        'amount': float(trade.get('amount', trade.get('quantity', 0))),
+                        'price': float(trade.get('price', 0)),
+                        'status': 'FILLED',
+                        'trade_fee': float(trade.get('fee', 0)),
+                        'exchange_order_id': trade.get('tx_hash', trade.get('transaction_hash', 'Unknown'))
+                    }
+                    order_data.append(trade_entry)
+                except Exception as e:
+                    self.logger().warning(f"Error processing trade entry: {e}")
+                    continue
+            
+            # Create DataFrame
+            if order_data:
+                df = pd.DataFrame(order_data)
+                # Sort by timestamp (most recent first)
+                if 'timestamp' in df.columns:
+                    df = df.sort_values('timestamp', ascending=False)
+                
+                self.logger().info(f"Order history DataFrame created with {len(df)} entries")
+                return df
+            else:
+                # Create empty DataFrame with proper columns
+                columns = [
+                    'symbol', 'order_id', 'timestamp', 'order_type', 'side', 
+                    'amount', 'price', 'status', 'trade_fee', 'exchange_order_id'
+                ]
+                df = pd.DataFrame(columns=columns)
+                self.logger().info("No order/trade history found - returning empty DataFrame")
+                return df
+            
+        except Exception as e:
+            self.logger().error(f"Error creating order history DataFrame: {e}", exc_info=True)
+            
+            # Return empty DataFrame on error
+            if pd is not None:
+                columns = [
+                    'symbol', 'order_id', 'timestamp', 'order_type', 'side', 
+                    'amount', 'price', 'status', 'trade_fee', 'exchange_order_id'
+                ]
+                return pd.DataFrame(columns=columns)
+            else:
+                return None
 
     async def _user_stream_event_listener(self):
         """

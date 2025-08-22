@@ -39,6 +39,16 @@ RATE_LIMITS = [
         limit=10,
         time_interval=1.0
     ),
+    RateLimit(
+        limit_id=CONSTANTS.GET_ACCOUNT_ORDERS_PATH_URL,
+        limit=10,
+        time_interval=1.0
+    ),
+    RateLimit(
+        limit_id=CONSTANTS.GET_ACCOUNT_TRADES_PATH_URL,
+        limit=10,
+        time_interval=1.0
+    ),
 ]
 
 

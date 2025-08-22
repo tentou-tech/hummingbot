@@ -79,6 +79,24 @@ class SomniaAPIOrderBookDataSource(OrderBookTrackerDataSource):
             self.logger().error(f"❌ Failed to initialize StandardWeb3 client: {e}")
             self._standard_client = None
 
+    def update_trading_pairs(self, trading_pairs: List[str]):
+        """
+        Update trading pairs after initialization.
+        
+        Args:
+            trading_pairs: New list of trading pairs to track
+        """
+        if trading_pairs != self._trading_pairs:
+            self.logger().info(f"Updating order book data source trading pairs from {self._trading_pairs} to {trading_pairs}")
+            self._trading_pairs = trading_pairs
+            
+            # Initialize message queues for new trading pairs
+            for trading_pair in trading_pairs:
+                if trading_pair not in self._message_queue:
+                    self._message_queue[trading_pair] = asyncio.Queue()
+                if trading_pair not in self._last_orderbook_timestamp:
+                    self._last_orderbook_timestamp[trading_pair] = 0.0
+
     async def get_last_traded_prices(
         self, 
         trading_pairs: List[str], 
