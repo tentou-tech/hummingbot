@@ -40,7 +40,7 @@ class StandardTestnetConfigMap(BaseConnectorConfigMap):
     """
     Configuration map for Somnia exchange connector.
     """
-    connector: str = "standard-testnet"
+    connector: str = "standard_testnet"
     somnia_private_key: SecretStr = Field(
         default_factory=get_default_private_key,
         json_schema_extra={
