@@ -86,6 +86,7 @@ def main():
         "web3",
         "xrpl-py>=4.1.0",
         "PyYaml>=0.2.5",
+        "python-dotenv"
     ]
 
     cython_kwargs = {
