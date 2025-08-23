@@ -3,7 +3,7 @@ name: Build Development Docker image
 on:
   workflow_dispatch:
   push:
-    branches: [somnia]
+    branches: [standard]
 
 jobs:
   build:
@@ -49,7 +49,7 @@ jobs:
           echo REPO_MANIFEST_NAME=gitops >> $GITHUB_ENV
           echo REPO_MANIFEST_URL=github.com/tentou-tech/gitops.git >> $GITHUB_ENV
           echo REPO_MANIFEST_BRANCH=main >> $GITHUB_ENV
-          echo REPO_MANIFEST_ENV_SOMNIA=./clusters/k8s-dev/hummingbot-somnia >> $GITHUB_ENV
+          echo REPO_MANIFEST_ENV_STANDARD=./clusters/k8s-dev/hummingbot-somnia >> $GITHUB_ENV
           echo REPO_MANIFEST_TAG_IMAGE=image_hummingbot >> $GITHUB_ENV
       - name: Update manifest
         env:

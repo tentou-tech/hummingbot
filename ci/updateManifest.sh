@@ -6,10 +6,10 @@ git clone "https://${PERSONAL_ACCESS_TOKEN}@${REPO_MANIFEST_URL}"
 cd ./${REPO_MANIFEST_NAME}
 git checkout ${REPO_MANIFEST_BRANCH} && git pull
 
-if [ ${GITHUB_REF_NAME} = "somnia" ]
+if [ ${GITHUB_REF_NAME} = "standard" ]
 then
-  echo 'This is somnia branch'
-  cd ${REPO_MANIFEST_ENV_SOMNIA}
+  echo 'This is standard branch'
+  cd ${REPO_MANIFEST_ENV_STANDARD}
 else
   exit
 fi
