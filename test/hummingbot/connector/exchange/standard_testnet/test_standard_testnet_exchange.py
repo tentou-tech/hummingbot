@@ -11,9 +11,9 @@ from bidict import bidict
 
 from hummingbot.client.config.client_config_map import ClientConfigMap
 from hummingbot.client.config.config_helpers import ClientConfigAdapter
-from hummingbot.connector.exchange.somnia import somnia_constants as CONSTANTS, somnia_web_utils as web_utils
-from hummingbot.connector.exchange.somnia.somnia_api_order_book_data_source import SomniaAPIOrderBookDataSource
-from hummingbot.connector.exchange.somnia.somnia_exchange import SomniaExchange
+from hummingbot.connector.exchange.standard_testnet import standard_testnet_constants as CONSTANTS, standard_testnet_web_utils as web_utils
+from hummingbot.connector.exchange.standard_testnet.standard_testnet_api_order_book_data_source import StandardTestnetAPIOrderBookDataSource
+from hummingbot.connector.exchange.standard_testnet.standard_testnet_exchange import StandardTestnetExchange
 from hummingbot.connector.trading_rule import TradingRule
 from hummingbot.connector.utils import get_new_client_order_id
 from hummingbot.core.data_type.cancellation_result import CancellationResult
@@ -32,7 +32,7 @@ from hummingbot.core.event.events import (
 from hummingbot.core.network_iterator import NetworkStatus
 
 
-class TestSomniaExchange(unittest.TestCase):
+class TestStandardTestnetExchange(unittest.TestCase):
     # the level is required to receive logs from the data source logger
     level = 0
 
@@ -54,7 +54,7 @@ class TestSomniaExchange(unittest.TestCase):
         self.client_config_map = ClientConfigAdapter(ClientConfigMap())
 
         # Mock wallet addresses for testing
-        self.exchange = SomniaExchange(
+        self.exchange = StandardTestnetExchange(
             self.client_config_map,
             "0xabcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef",  # Mock private key (64 hex chars = 32 bytes)
             "0x1234567890123456789012345678901234567890",  # Mock wallet address (40 hex chars = 20 bytes)
@@ -72,13 +72,13 @@ class TestSomniaExchange(unittest.TestCase):
         self._initialize_event_loggers()
 
         # Mock symbol mapping
-        SomniaAPIOrderBookDataSource._trading_pair_symbol_map = {
+        StandardTestnetAPIOrderBookDataSource._trading_pair_symbol_map = {
             CONSTANTS.DEFAULT_DOMAIN: bidict({self.ex_trading_pair: self.trading_pair})
         }
 
     def tearDown(self) -> None:
         self.test_task and self.test_task.cancel()
-        SomniaAPIOrderBookDataSource._trading_pair_symbol_map = {}
+        StandardTestnetAPIOrderBookDataSource._trading_pair_symbol_map = {}
         super().tearDown()
 
     def _initialize_event_loggers(self):
@@ -188,7 +188,7 @@ class TestSomniaExchange(unittest.TestCase):
         """Test trading requirement check"""
         self.assertTrue(self.exchange.is_trading_required())
 
-    @patch("hummingbot.connector.exchange.somnia.somnia_exchange.standardweb3")
+    @patch("hummingbot.connector.exchange.standard_testnet.standard_testnet_exchange.standardweb3")
     def test_standardweb3_integration(self, mock_standardweb3):
         """Test StandardWeb3 integration"""
         mock_client = MagicMock()
@@ -283,7 +283,7 @@ class TestSomniaExchange(unittest.TestCase):
         """Test that order book data source is properly initialized"""
         self.assertIsNotNone(self.exchange._order_book_tracker)
         self.assertIsNotNone(self.exchange._order_book_tracker._data_source)
-        self.assertIsInstance(self.exchange._order_book_tracker._data_source, SomniaAPIOrderBookDataSource)
+        self.assertIsInstance(self.exchange._order_book_tracker._data_source, StandardTestnetAPIOrderBookDataSource)
 
     def test_web3_balance_retrieval(self):
         """Test Web3 balance retrieval functionality"""

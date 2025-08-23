@@ -8,7 +8,7 @@ from typing import Dict, List, Optional, Tuple
 from pydantic import Field, SecretStr
 
 from hummingbot.client.config.config_data_types import BaseConnectorConfigMap
-from hummingbot.connector.exchange.somnia.somnia_constants import TOKEN_ADDRESSES, TOKEN_DECIMALS
+from hummingbot.connector.exchange.standard_testnet.standard_testnet_constants import TOKEN_ADDRESSES, TOKEN_DECIMALS
 from hummingbot.core.utils.async_utils import safe_ensure_future
 
 # Load environment variables from .env file
@@ -19,7 +19,7 @@ except ImportError:
     pass  # python-dotenv not installed, skip
 
 # Required constants for connector registration
-CENTRALIZED = False  # Somnia is a DEX
+CENTRALIZED = True  # Standard Testnet is a centralized exchange (CLOB)
 USE_ETHEREUM_WALLET = False  # Set to False so it appears in balance command  
 EXAMPLE_PAIR = "STT-USDC"
 DEFAULT_FEES = [0.1, 0.1]  # [maker_fee_percent, taker_fee_percent]
@@ -36,11 +36,11 @@ def get_default_wallet_address():
     return os.getenv("SOMNIA_WALLET_ADDRESS", "")
 
 
-class SomniaConfigMap(BaseConnectorConfigMap):
+class StandardTestnetConfigMap(BaseConnectorConfigMap):
     """
     Configuration map for Somnia exchange connector.
     """
-    connector: str = "somnia"
+    connector: str = "standard-testnet"
     somnia_private_key: SecretStr = Field(
         default_factory=get_default_private_key,
         json_schema_extra={
@@ -61,7 +61,7 @@ class SomniaConfigMap(BaseConnectorConfigMap):
 
 
 # Set KEYS for connector registration
-KEYS = SomniaConfigMap.construct()
+KEYS = StandardTestnetConfigMap.construct()
 
 
 def split_trading_pair(trading_pair: str) -> Tuple[str, str]:
@@ -329,7 +329,7 @@ def build_standard_web3_config() -> Dict:
     Returns:
         Configuration dictionary
     """
-    from .somnia_constants import (
+    from .standard_testnet_constants import (
         SOMNIA_CHAIN_ID,
         SOMNIA_RPC_URL,
         STANDARD_EXCHANGE_ADDRESS,

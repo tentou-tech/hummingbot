@@ -32,7 +32,7 @@ class STTAmmArbitrage(ScriptStrategyBase):
     trading_pair_1 = f"{base}-{quote_1}"  # STT-USDC
     trading_pair_2 = f"{base}-{quote_2}"  # STT-WBTC
     
-    exchange = "somnia"  # Using Somnia DEX for both pairs
+    exchange = "standard-testnet"  # Using Somnia DEX for both pairs
     
     # Define markets - both pairs on the same exchange
     markets = {exchange: {trading_pair_1, trading_pair_2}}

@@ -3,19 +3,19 @@ from typing import Awaitable
 from unittest import TestCase
 from unittest.mock import MagicMock, patch
 
-import hummingbot.connector.exchange.somnia.somnia_constants as CONSTANTS
-from hummingbot.connector.exchange.somnia.somnia_auth import SomniaAuth
+import hummingbot.connector.exchange.standard_testnet.standard_testnet_constants as CONSTANTS
+from hummingbot.connector.exchange.standard_testnet.standard_testnet_auth import StandardTestnetAuth
 from hummingbot.core.web_assistant.connections.data_types import RESTMethod, RESTRequest, WSJSONRequest
 
 
-class SomniaAuthTests(TestCase):
+class StandardTestnetAuthTests(TestCase):
     def setUp(self) -> None:
         super().setUp()
         # Mock wallet addresses for testing
         self.wallet_address = "0x1234567890123456789012345678901234567890"
         self.private_key = "0xabcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef"
 
-        self.auth = SomniaAuth(
+        self.auth = StandardTestnetAuth(
             wallet_address=self.wallet_address,
             private_key=self.private_key,
         )
@@ -52,7 +52,7 @@ class SomniaAuthTests(TestCase):
         # Private key should be stored but not directly accessible for security
         self.assertIsNotNone(self.auth._private_key)
 
-    @patch("hummingbot.connector.exchange.somnia.somnia_auth.Account.from_key")
+    @patch("hummingbot.connector.exchange.standard_testnet.standard_testnet_auth.Account.from_key")
     def test_web3_account_creation(self, mock_from_key):
         """Test Web3 account creation from private key"""
         mock_account = MagicMock()
@@ -60,7 +60,7 @@ class SomniaAuthTests(TestCase):
         mock_from_key.return_value = mock_account
         
         # Create new auth instance to trigger account creation
-        auth = SomniaAuth(
+        auth = StandardTestnetAuth(
             wallet_address=self.wallet_address,
             private_key=self.private_key,
         )
@@ -136,7 +136,7 @@ class SomniaAuthTests(TestCase):
         # Test auth required request
         auth_request = RESTRequest(
             method=RESTMethod.POST,
-            url="https://api.somnia.com/orders",
+            url="https://api.standard-testnet.com/orders",
             is_auth_required=True,
         )
         
@@ -145,7 +145,7 @@ class SomniaAuthTests(TestCase):
         # Test non-auth request
         public_request = RESTRequest(
             method=RESTMethod.GET,
-            url="https://api.somnia.com/orderbook",
+            url="https://api.standard-testnet.com/orderbook",
             is_auth_required=False,
         )
         

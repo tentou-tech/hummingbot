@@ -9,12 +9,12 @@ from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 from standardweb3 import StandardClient
 
-from hummingbot.connector.exchange.somnia import (
-    somnia_constants as CONSTANTS,
-    somnia_utils as utils,
-    somnia_web_utils as web_utils,
+from hummingbot.connector.exchange.standard_testnet import (
+    standard_testnet_constants as CONSTANTS,
+    standard_testnet_utils as utils,
+    standard_testnet_web_utils as web_utils,
 )
-from hummingbot.connector.exchange.somnia.somnia_order_book import SomniaOrderBook
+from hummingbot.connector.exchange.standard_testnet.standard_testnet_order_book import StandardTestnetOrderBook
 from hummingbot.core.api_throttler.async_throttler import AsyncThrottler
 from hummingbot.core.data_type.order_book import OrderBook
 from hummingbot.core.data_type.order_book_message import OrderBookMessage, OrderBookMessageType
@@ -25,10 +25,10 @@ from hummingbot.core.web_assistant.ws_assistant import WSAssistant
 from hummingbot.logger import HummingbotLogger
 
 if TYPE_CHECKING:
-    from hummingbot.connector.exchange.somnia.somnia_exchange import SomniaExchange
+    from hummingbot.connector.exchange.standard_testnet.standard_testnet_exchange import StandardTestnetExchange
 
 
-class SomniaAPIOrderBookDataSource(OrderBookTrackerDataSource):
+class StandardTestnetAPIOrderBookDataSource(OrderBookTrackerDataSource):
     """
     Order book data source for Somnia exchange.
     """
@@ -44,7 +44,7 @@ class SomniaAPIOrderBookDataSource(OrderBookTrackerDataSource):
     def __init__(
         self,
         trading_pairs: List[str],
-        connector: Optional["SomniaExchange"] = None,
+        connector: Optional["StandardTestnetExchange"] = None,
         api_factory: Optional[WebAssistantsFactory] = None,
         domain: str = CONSTANTS.DEFAULT_DOMAIN,
         throttler: Optional[AsyncThrottler] = None,
@@ -54,7 +54,7 @@ class SomniaAPIOrderBookDataSource(OrderBookTrackerDataSource):
         self._domain = domain
         self._api_factory = api_factory
         self._throttler = throttler
-        self.logger().info(f"SomniaAPIOrderBookDataSource initialized with trading_pairs: {trading_pairs}")
+        self.logger().info(f"StandardTestnetAPIOrderBookDataSource initialized with trading_pairs: {trading_pairs}")
         self.logger().info(f"Connector provided: {connector is not None}")
         self.logger().info(f"API factory provided: {api_factory is not None}")
         self.logger().info(f"Domain: {domain}")
@@ -159,15 +159,15 @@ class SomniaAPIOrderBookDataSource(OrderBookTrackerDataSource):
         bids = snapshot.get("bids", [])
         asks = snapshot.get("asks", [])
         
-        # Prepare data for SomniaOrderBook
+        # Prepare data for StandardTestnetOrderBook
         snapshot_data = {
             "trading_pair": trading_pair,
             "bids": bids,
             "asks": asks,
         }
         
-        # Create order book message using SomniaOrderBook
-        snapshot_msg = SomniaOrderBook.snapshot_message_from_exchange_rest(
+        # Create order book message using StandardTestnetOrderBook
+        snapshot_msg = StandardTestnetOrderBook.snapshot_message_from_exchange_rest(
             snapshot_data, snapshot_timestamp
         )
         
@@ -187,10 +187,10 @@ class SomniaAPIOrderBookDataSource(OrderBookTrackerDataSource):
         self.logger().info(f"Creating new order book for {trading_pair}")
         
         try:
-            # Create a new order book instance using SomniaOrderBook
-            self.logger().info("DEBUG: Creating SomniaOrderBook instance")
-            order_book = SomniaOrderBook()
-            self.logger().info("DEBUG: SomniaOrderBook instance created successfully")
+            # Create a new order book instance using StandardTestnetOrderBook
+            self.logger().info("DEBUG: Creating StandardTestnetOrderBook instance")
+            order_book = StandardTestnetOrderBook()
+            self.logger().info("DEBUG: StandardTestnetOrderBook instance created successfully")
             
             # Initialize with snapshot data
             self.logger().info("DEBUG: Getting order book snapshot for initialization")
@@ -226,7 +226,7 @@ class SomniaAPIOrderBookDataSource(OrderBookTrackerDataSource):
         base_symbol, quote_symbol = trading_pair.split('-')
         
         # Get token addresses from constants file
-        from .somnia_constants import TOKEN_ADDRESSES, REST_API_BASE_URL
+        from .standard_testnet_constants import TOKEN_ADDRESSES, REST_API_BASE_URL
         
         base_address = TOKEN_ADDRESSES.get(base_symbol)
         quote_address = TOKEN_ADDRESSES.get(quote_symbol)

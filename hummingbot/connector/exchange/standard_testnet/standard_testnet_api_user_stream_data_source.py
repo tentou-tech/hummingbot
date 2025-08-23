@@ -4,10 +4,10 @@ import asyncio
 import logging
 from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
-from hummingbot.connector.exchange.somnia import (
-    somnia_constants as CONSTANTS,
-    somnia_utils as utils,
-    somnia_web_utils as web_utils,
+from hummingbot.connector.exchange.standard_testnet import (
+    standard_testnet_constants as CONSTANTS,
+    standard_testnet_utils as utils,
+    standard_testnet_web_utils as web_utils,
 )
 from hummingbot.core.api_throttler.async_throttler import AsyncThrottler
 from hummingbot.core.data_type.user_stream_tracker_data_source import UserStreamTrackerDataSource
@@ -15,10 +15,10 @@ from hummingbot.core.web_assistant.web_assistants_factory import WebAssistantsFa
 from hummingbot.logger import HummingbotLogger
 
 if TYPE_CHECKING:
-    from hummingbot.connector.exchange.somnia.somnia_auth import SomniaAuth
+    from hummingbot.connector.exchange.standard_testnet.standard_testnet_auth import StandardTestnetAuth
 
 
-class SomniaAPIUserStreamDataSource(UserStreamTrackerDataSource):
+class StandardTestnetAPIUserStreamDataSource(UserStreamTrackerDataSource):
     """
     User stream data source for Somnia exchange.
     Handles real-time updates for user-specific data like orders, balances, and trades.
@@ -34,7 +34,7 @@ class SomniaAPIUserStreamDataSource(UserStreamTrackerDataSource):
 
     def __init__(
         self,
-        auth: "SomniaAuth",
+        auth: "StandardTestnetAuth",
         trading_pairs: List[str],
         connector,
         api_factory: Optional[WebAssistantsFactory] = None,

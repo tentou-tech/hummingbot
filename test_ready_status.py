@@ -3,7 +3,7 @@
 import asyncio
 import os
 import sys
-from hummingbot.connector.exchange.somnia.somnia_exchange import SomniaExchange
+from hummingbot.connector.exchange.standard_testnet.standard_testnet_exchange import StandardTestnetExchange
 from hummingbot.client.config.client_config_map import ClientConfigMap
 from hummingbot.client.config.config_helpers import ClientConfigAdapter
 
@@ -14,10 +14,10 @@ async def test_connector_ready():
     client_config_map = ClientConfigAdapter(ClientConfigMap())
     
     # Initialize connector
-    exchange = SomniaExchange(
+    exchange = StandardTestnetExchange(
         client_config_map=client_config_map,
-        somnia_private_key=os.getenv("SOMNIA_PRIVATE_KEY"),
-        somnia_wallet_address=os.getenv("SOMNIA_WALLET_ADDRESS"),
+        somnia_private_key=os.getenv("STANDARD_TESTNET_PRIVATE_KEY"),
+        somnia_wallet_address=os.getenv("STANDARD_TESTNET_WALLET_ADDRESS"),
         trading_pairs=["STT-USDC"]
     )
     

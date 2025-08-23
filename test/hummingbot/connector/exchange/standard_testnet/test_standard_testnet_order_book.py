@@ -6,17 +6,17 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import aioresponses
 
-from hummingbot.connector.exchange.somnia import somnia_constants as CONSTANTS
-from hummingbot.connector.exchange.somnia.somnia_order_book import SomniaOrderBook
+from hummingbot.connector.exchange.standard_testnet import standard_testnet_constants as CONSTANTS
+from hummingbot.connector.exchange.standard_testnet.standard_testnet_order_book import StandardTestnetOrderBook
 from hummingbot.core.data_type.order_book_message import OrderBookMessage, OrderBookMessageType
 from hummingbot.core.data_type.order_book_row import OrderBookRow
 
 
-class SomniaOrderBookTests(TestCase):
+class StandardTestnetOrderBookTests(TestCase):
     def setUp(self):
         """Set up test fixtures"""
         self.trading_pair = "STT-USDC"
-        self.order_book = SomniaOrderBook()
+        self.order_book = StandardTestnetOrderBook()
 
     def test_init(self):
         """Test order book initialization"""

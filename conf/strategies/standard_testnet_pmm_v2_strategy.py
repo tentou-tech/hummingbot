@@ -33,11 +33,11 @@ class SomniaPMMConfig(StrategyV2ConfigBase):
     script_file_name: str = "somnia_pmm_v2_strategy.py"
 
     # Required base fields
-    markets: Dict[str, Set[str]] = {"somnia": {"0xb35a7935F8fbc52fB525F16Af09329b3794E8C42-0x0ED782B8079529f7385c3eDA9fAf1EaA0DbC6a17"}}
+    markets: Dict[str, Set[str]] = {"standard-testnet": {"0xb35a7935F8fbc52fB525F16Af09329b3794E8C42-0x0ED782B8079529f7385c3eDA9fAf1EaA0DbC6a17"}}
     candles_config: List[CandlesConfig] = []
 
     # Market parameters
-    exchange: str = "somnia"
+    exchange: str = "standard-testnet"
     trading_pair: str = "0xb35a7935F8fbc52fB525F16Af09329b3794E8C42-0x0ED782B8079529f7385c3eDA9fAf1EaA0DbC6a17"
 
     # Strategy parameters

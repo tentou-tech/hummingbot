@@ -9,14 +9,14 @@ from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
 from bidict import bidict
 
 from hummingbot.connector.constants import s_decimal_0, s_decimal_NaN
-from hummingbot.connector.exchange.somnia import (
-    somnia_constants as CONSTANTS,
-    somnia_utils as utils,
-    somnia_web_utils as web_utils,
+from hummingbot.connector.exchange.standard_testnet import (
+    standard_testnet_constants as CONSTANTS,
+    standard_testnet_utils as utils,
+    standard_testnet_web_utils as web_utils,
 )
-from hummingbot.connector.exchange.somnia.somnia_api_order_book_data_source import SomniaAPIOrderBookDataSource
-from hummingbot.connector.exchange.somnia.somnia_api_user_stream_data_source import SomniaAPIUserStreamDataSource
-from hummingbot.connector.exchange.somnia.somnia_auth import SomniaAuth
+from hummingbot.connector.exchange.standard_testnet.standard_testnet_api_order_book_data_source import StandardTestnetAPIOrderBookDataSource
+from hummingbot.connector.exchange.standard_testnet.standard_testnet_api_user_stream_data_source import StandardTestnetAPIUserStreamDataSource
+from hummingbot.connector.exchange.standard_testnet.standard_testnet_auth import StandardTestnetAuth
 from hummingbot.connector.exchange_py_base import ExchangePyBase
 from hummingbot.connector.trading_rule import TradingRule
 from hummingbot.connector.utils import combine_to_hb_trading_pair
@@ -45,7 +45,7 @@ except ImportError:
     pd = None
 
 
-class SomniaExchange(ExchangePyBase):
+class StandardTestnetExchange(ExchangePyBase):
     """
     Somnia exchange connector using StandardWeb3 for blockchain interactions.
     """
@@ -99,7 +99,7 @@ class SomniaExchange(ExchangePyBase):
         trading_required: bool = True,
         domain: str = CONSTANTS.DEFAULT_DOMAIN,
     ):
-        self.logger().info("=== DEBUG: SomniaExchange.__init__ STARTING ===")
+        self.logger().info("=== DEBUG: StandardTestnetExchange.__init__ STARTING ===")
         self.logger().info(f"DEBUG: Constructor called with parameters:")
         self.logger().info(f"  - trading_pairs = {trading_pairs} (type: {type(trading_pairs)})")
         self.logger().info(f"  - trading_required = {trading_required} (type: {type(trading_required)})")
@@ -151,7 +151,7 @@ class SomniaExchange(ExchangePyBase):
                 self._rpc_url = rpc_url
                 
                 # Use correct Somnia testnet endpoints from our constants
-                from hummingbot.connector.exchange.somnia.somnia_constants import (
+                from hummingbot.connector.exchange.standard_testnet.standard_testnet_constants import (
                     SOMNIA_GRAPHQL_ENDPOINT, 
                     SOMNIA_WEBSOCKET_URL,
                     STANDARD_EXCHANGE_ADDRESS
@@ -191,12 +191,12 @@ class SomniaExchange(ExchangePyBase):
         self.logger().info("DEBUG: Nonce management initialized")
         
         # Initialize authentication
-        self.logger().info("DEBUG: Initializing SomniaAuth")
-        self._auth = SomniaAuth(
+        self.logger().info("DEBUG: Initializing StandardTestnetAuth")
+        self._auth = StandardTestnetAuth(
             private_key=self._private_key,
             wallet_address=self._wallet_address,
         )
-        self.logger().info("DEBUG: SomniaAuth initialized successfully")
+        self.logger().info("DEBUG: StandardTestnetAuth initialized successfully")
         
         # Initialize parent class
         self.logger().info("DEBUG: About to call super().__init__()")
@@ -213,10 +213,10 @@ class SomniaExchange(ExchangePyBase):
         # Instead they only update on position changes (not cancel), so we need to fetch periodically
         self.real_time_balance_update = False
         
-        self.logger().info("DEBUG: SomniaExchange.__init__ completed successfully")
+        self.logger().info("DEBUG: StandardTestnetExchange.__init__ completed successfully")
 
     @staticmethod
-    def somnia_order_type(order_type: OrderType) -> str:
+    def standard_testnet_order_type(order_type: OrderType) -> str:
         """
         Convert Hummingbot order type to Somnia format.
         
@@ -233,13 +233,13 @@ class SomniaExchange(ExchangePyBase):
         }.get(order_type, "limit")
 
     @staticmethod
-    def to_hb_order_type(somnia_type: str) -> OrderType:
+    def to_hb_order_type(standard_testnet_type: str) -> OrderType:
         """
         Convert Somnia order type to Hummingbot format.
-        
+
         Args:
-            somnia_type: Somnia order type
-            
+            standard_testnet_type: Somnia order type
+
         Returns:
             Hummingbot OrderType
         """
@@ -247,10 +247,8 @@ class SomniaExchange(ExchangePyBase):
             "limit": OrderType.LIMIT,
             "market": OrderType.MARKET,
             "limit_maker": OrderType.LIMIT_MAKER,
-        }.get(somnia_type, OrderType.LIMIT)
-
-    @property
-    def authenticator(self) -> SomniaAuth:
+        }.get(standard_testnet_type, OrderType.LIMIT)    @property
+    def authenticator(self) -> StandardTestnetAuth:
         """Get authenticator instance."""
         return self._auth
 
@@ -840,7 +838,7 @@ class SomniaExchange(ExchangePyBase):
         self.logger().info(f"DEBUG: Creating order book data source with trading_pairs: {effective_trading_pairs}")
         
         try:
-            data_source = SomniaAPIOrderBookDataSource(
+            data_source = StandardTestnetAPIOrderBookDataSource(
                 trading_pairs=effective_trading_pairs,
                 connector=self,  # Pass self reference like other exchanges
                 api_factory=self._web_assistants_factory,
@@ -863,7 +861,7 @@ class SomniaExchange(ExchangePyBase):
         Returns:
             UserStreamTrackerDataSource instance
         """
-        return SomniaAPIUserStreamDataSource(
+        return StandardTestnetAPIUserStreamDataSource(
             auth=self._auth,
             trading_pairs=self._trading_pairs,
             connector=self,

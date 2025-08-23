@@ -5,7 +5,7 @@ from hummingbot.core.data_type.order_book import OrderBook
 from hummingbot.core.data_type.order_book_message import OrderBookMessage, OrderBookMessageType
 
 
-class SomniaOrderBook(OrderBook):
+class StandardTestnetOrderBook(OrderBook):
     @classmethod
     def snapshot_message_from_exchange_websocket(
         cls, msg: Dict[str, Any], timestamp: float, metadata: Optional[Dict] = None

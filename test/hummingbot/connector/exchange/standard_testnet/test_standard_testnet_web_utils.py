@@ -3,7 +3,7 @@ import time
 from unittest import TestCase
 from unittest.mock import AsyncMock, patch
 
-from hummingbot.connector.exchange.somnia import somnia_constants as CONSTANTS, somnia_web_utils as web_utils
+from hummingbot.connector.exchange.standard_testnet import standard_testnet_constants as CONSTANTS, standard_testnet_web_utils as web_utils
 
 
 class SomniaWebUtilsTests(TestCase):
@@ -35,7 +35,7 @@ class SomniaWebUtilsTests(TestCase):
         recent_timestamp = time.time() - 1.0
         
         # Mock the server time response
-        with patch("hummingbot.connector.exchange.somnia.somnia_web_utils.aiohttp.ClientSession") as mock_session:
+        with patch("hummingbot.connector.exchange.standard_testnet.standard_testnet_web_utils.aiohttp.ClientSession") as mock_session:
             mock_response = AsyncMock()
             mock_response.json.return_value = {"serverTime": int(time.time() * 1000)}
             mock_session.return_value.__aenter__.return_value.get.return_value.__aenter__.return_value = mock_response
@@ -142,7 +142,7 @@ class SomniaWebUtilsTests(TestCase):
                 converted_back = web_utils.convert_from_exchange_trading_pair(exchange_pair)
                 self.assertIsNotNone(converted_back)
 
-    def test_somnia_network_configuration(self):
+    def test_standard_testnet_network_configuration(self):
         """Test Somnia network specific configuration"""
         # Test Somnia testnet configuration
         testnet_constants = [

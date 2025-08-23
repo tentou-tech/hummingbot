@@ -5,21 +5,21 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import aioresponses
 
-from hummingbot.connector.exchange.somnia import somnia_constants as CONSTANTS
-from hummingbot.connector.exchange.somnia.somnia_api_user_stream_data_source import SomniaAPIUserStreamDataSource
-from hummingbot.connector.exchange.somnia.somnia_auth import SomniaAuth
+from hummingbot.connector.exchange.standard_testnet import standard_testnet_constants as CONSTANTS
+from hummingbot.connector.exchange.standard_testnet.standard_testnet_api_user_stream_data_source import StandardTestnetAPIUserStreamDataSource
+from hummingbot.connector.exchange.standard_testnet.standard_testnet_auth import StandardTestnetAuth
 from hummingbot.core.api_throttler.async_throttler import AsyncThrottler
 
 
-class SomniaAPIUserStreamDataSourceTests(TestCase):
+class StandardTestnetAPIUserStreamDataSourceTests(TestCase):
     def setUp(self):
         """Set up test fixtures"""
-        self.auth = SomniaAuth(
+        self.auth = StandardTestnetAuth(
             wallet_address="0x1234567890123456789012345678901234567890",
             private_key="0xabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdef"
         )
         self.throttler = AsyncThrottler(CONSTANTS.RATE_LIMITS)
-        self.data_source = SomniaAPIUserStreamDataSource(
+        self.data_source = StandardTestnetAPIUserStreamDataSource(
             auth=self.auth,
             throttler=self.throttler
         )
@@ -238,7 +238,7 @@ class SomniaAPIUserStreamDataSourceTests(TestCase):
             except Exception:
                 pass  # May require live connection
 
-    def test_somnia_specific_features(self):
+    def test_standard_testnet_specific_features(self):
         """Test Somnia-specific user stream features"""
         # Test Web3 event listening
         if hasattr(self.data_source, '_listen_to_web3_events'):
