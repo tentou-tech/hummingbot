@@ -1,0 +1,5568 @@
+{
+  "openapi": "3.0.0",
+  "info": {
+    "version": "1.0.0",
+    "title": "Standard API"
+  },
+  "components": {
+    "securitySchemes": {
+      "AdministratorApiKey": {
+        "type": "apiKey",
+        "name": "x-admin-api-key",
+        "in": "header"
+      }
+    },
+    "schemas": {
+      "PairBucket": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "index": {
+            "type": "number"
+          },
+          "protocolId": {
+            "type": "string"
+          },
+          "networkName": {
+            "type": "string"
+          },
+          "totalVolume": {
+            "type": "number"
+          },
+          "tvl": {
+            "type": "number"
+          },
+          "totalGlobalTrades": {
+            "type": "number"
+          },
+          "totalGlobalPairs": {
+            "type": "number"
+          },
+          "totalGlobalTraders": {
+            "type": "number"
+          },
+          "timestamp": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "id",
+          "index",
+          "protocolId",
+          "networkName",
+          "totalVolume",
+          "tvl",
+          "totalGlobalTrades",
+          "totalGlobalPairs",
+          "totalGlobalTraders",
+          "timestamp"
+        ]
+      },
+      "OhlcvResponse": {
+        "type": "object",
+        "properties": {
+          "buckets": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PairBucket"
+            }
+          },
+          "totalCount": {
+            "type": "number",
+            "example": 1
+          },
+          "totalPages": {
+            "type": "number",
+            "example": 1
+          },
+          "pageSize": {
+            "type": "number",
+            "example": 1
+          }
+        },
+        "required": ["buckets", "totalCount", "totalPages", "pageSize"]
+      },
+      "TokenBucket": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "index": {
+            "type": "number"
+          },
+          "token": {
+            "type": "string"
+          },
+          "open": {
+            "type": "number"
+          },
+          "high": {
+            "type": "number"
+          },
+          "low": {
+            "type": "number"
+          },
+          "close": {
+            "type": "number"
+          },
+          "average": {
+            "type": "number"
+          },
+          "tvl": {
+            "type": "number"
+          },
+          "tvlUSD": {
+            "type": "number"
+          },
+          "volume": {
+            "type": "number"
+          },
+          "volumeUSD": {
+            "type": "number"
+          },
+          "count": {
+            "type": "number"
+          },
+          "timestamp": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "id",
+          "index",
+          "token",
+          "open",
+          "high",
+          "low",
+          "close",
+          "average",
+          "tvl",
+          "tvlUSD",
+          "volume",
+          "volumeUSD",
+          "count",
+          "timestamp"
+        ]
+      },
+      "TokenBucketsResponse": {
+        "type": "object",
+        "properties": {
+          "buckets": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TokenBucket"
+            }
+          },
+          "totalCount": {
+            "type": "number",
+            "example": 1
+          },
+          "totalPages": {
+            "type": "number",
+            "example": 1
+          },
+          "pageSize": {
+            "type": "number",
+            "example": 1
+          }
+        },
+        "required": ["buckets", "totalCount", "totalPages", "pageSize"]
+      },
+      "Token": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "example": "0xe8CabF9d1FFB6CE23cF0a86641849543ec7BD7d5"
+          },
+          "name": {
+            "type": "string",
+            "example": "Tether USD"
+          },
+          "symbol": {
+            "type": "string",
+            "example": "USDT"
+          },
+          "totalSupply": {
+            "type": "number",
+            "example": 100000000000
+          },
+          "logoURI": {
+            "type": "string",
+            "example": "https://assets.coingecko.com/coins/images/325/large/Tether-logo.png?1598003707"
+          },
+          "decimals": {
+            "type": "number",
+            "example": 6
+          },
+          "priceUSD": {
+            "type": "number",
+            "example": 1
+          },
+          "sparkline7D": {
+            "type": "array",
+            "items": {
+              "type": "number"
+            },
+            "example": [1, 1, 1, 1, 1, 1, 1]
+          },
+          "cpPrice": {
+            "type": "number",
+            "example": 1
+          },
+          "cgId": {
+            "type": "string",
+            "example": "tether"
+          },
+          "cmcId": {
+            "type": "string",
+            "example": "tether"
+          },
+          "ath": {
+            "type": "number",
+            "example": 9000
+          },
+          "atl": {
+            "type": "number",
+            "example": 0
+          },
+          "listingDate": {
+            "type": "number",
+            "example": 1620000000
+          },
+          "dayPriceDifference": {
+            "type": "number",
+            "example": 0
+          },
+          "dayPriceDifferencePercentage": {
+            "type": "number",
+            "example": 0
+          },
+          "dayTvl": {
+            "type": "number",
+            "example": 0
+          },
+          "dayVolume": {
+            "type": "number",
+            "example": 0
+          },
+          "dayTvlUSD": {
+            "type": "number",
+            "example": 0
+          },
+          "dayVolumeUSD": {
+            "type": "number",
+            "example": 0
+          },
+          "creator": {
+            "type": "string",
+            "example": "0xe8CabF9d1FFB6CE23cF0a86641849543ec7BD7d5"
+          },
+          "totalMinBuckets": {
+            "type": "number",
+            "example": 0
+          },
+          "totalHourBuckets": {
+            "type": "number",
+            "example": 0
+          },
+          "totalDayBuckets": {
+            "type": "number",
+            "example": 0
+          },
+          "totalWeekBuckets": {
+            "type": "number",
+            "example": 0
+          },
+          "totalMonthBuckets": {
+            "type": "number",
+            "example": 0
+          },
+          "tag": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "example": ["stnd_stablecoin"]
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "symbol",
+          "totalSupply",
+          "logoURI",
+          "decimals",
+          "priceUSD",
+          "sparkline7D",
+          "cpPrice",
+          "cgId",
+          "cmcId",
+          "ath",
+          "atl",
+          "listingDate",
+          "dayPriceDifference",
+          "dayPriceDifferencePercentage",
+          "dayTvl",
+          "dayVolume",
+          "dayTvlUSD",
+          "dayVolumeUSD",
+          "creator",
+          "totalMinBuckets",
+          "totalHourBuckets",
+          "totalDayBuckets",
+          "totalWeekBuckets",
+          "totalMonthBuckets",
+          "tag"
+        ]
+      },
+      "Tokens": {
+        "type": "array",
+        "items": {
+          "$ref": "#/components/schemas/Token"
+        }
+      },
+      "GetAccountOrdersResponse": {
+        "type": "object",
+        "properties": {
+          "orders": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "isBid": {
+                  "type": "boolean"
+                },
+                "orderId": {
+                  "type": "number"
+                },
+                "base": {
+                  "$ref": "#/components/schemas/Token"
+                },
+                "quote": {
+                  "$ref": "#/components/schemas/Token"
+                },
+                "pair": {
+                  "type": "string"
+                },
+                "orderbook": {
+                  "type": "string"
+                },
+                "price": {
+                  "type": "number"
+                },
+                "amount": {
+                  "type": "number"
+                },
+                "placed": {
+                  "type": "number"
+                },
+                "timestamp": {
+                  "type": "number"
+                },
+                "account": {
+                  "type": "string"
+                },
+                "txHash": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "id",
+                "isBid",
+                "orderId",
+                "base",
+                "quote",
+                "pair",
+                "orderbook",
+                "price",
+                "amount",
+                "placed",
+                "timestamp",
+                "account",
+                "txHash"
+              ]
+            }
+          },
+          "totalCount": {
+            "type": "number",
+            "example": 1
+          },
+          "totalPages": {
+            "type": "number",
+            "example": 1
+          },
+          "pageSize": {
+            "type": "number",
+            "example": 1
+          }
+        },
+        "required": ["orders", "totalCount", "totalPages", "pageSize"]
+      },
+      "TradesSchema": {
+        "type": "object",
+        "properties": {
+          "trades": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "orderbook": {
+                  "type": "string"
+                },
+                "orderId": {
+                  "type": "number"
+                },
+                "base": {
+                  "$ref": "#/components/schemas/Token"
+                },
+                "quote": {
+                  "$ref": "#/components/schemas/Token"
+                },
+                "pair": {
+                  "type": "string"
+                },
+                "isBid": {
+                  "type": "boolean"
+                },
+                "price": {
+                  "type": "number"
+                },
+                "baseAmount": {
+                  "type": "number"
+                },
+                "quoteAmount": {
+                  "type": "number"
+                },
+                "timestamp": {
+                  "type": "number"
+                },
+                "taker": {
+                  "type": "string"
+                },
+                "maker": {
+                  "type": "string"
+                },
+                "txHash": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "id",
+                "orderbook",
+                "orderId",
+                "base",
+                "quote",
+                "pair",
+                "isBid",
+                "price",
+                "baseAmount",
+                "quoteAmount",
+                "timestamp",
+                "taker",
+                "maker",
+                "txHash"
+              ]
+            }
+          },
+          "totalCount": {
+            "type": "number",
+            "example": 1
+          },
+          "totalPages": {
+            "type": "number",
+            "example": 1
+          },
+          "pageSize": {
+            "type": "number",
+            "example": 1
+          }
+        },
+        "required": ["trades", "totalCount", "totalPages", "pageSize"]
+      },
+      "GetAccountTradeHistoryResponse": {
+        "type": "object",
+        "properties": {
+          "tradeHistory": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "orderId": {
+                  "type": "number"
+                },
+                "isBid": {
+                  "type": "boolean"
+                },
+                "base": {
+                  "$ref": "#/components/schemas/Token"
+                },
+                "quote": {
+                  "$ref": "#/components/schemas/Token"
+                },
+                "pair": {
+                  "type": "string"
+                },
+                "orderbook": {
+                  "type": "string"
+                },
+                "price": {
+                  "type": "number"
+                },
+                "amount": {
+                  "type": "number"
+                },
+                "timestamp": {
+                  "type": "number"
+                },
+                "maker": {
+                  "type": "string"
+                },
+                "taker": {
+                  "type": "string"
+                },
+                "account": {
+                  "type": "string"
+                },
+                "txHash": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "id",
+                "orderId",
+                "isBid",
+                "base",
+                "quote",
+                "pair",
+                "orderbook",
+                "price",
+                "amount",
+                "timestamp",
+                "maker",
+                "taker",
+                "account",
+                "txHash"
+              ]
+            }
+          },
+          "totalCount": {
+            "type": "number",
+            "example": 1
+          },
+          "totalPages": {
+            "type": "number",
+            "example": 1
+          },
+          "pageSize": {
+            "type": "number",
+            "example": 1
+          }
+        },
+        "required": ["tradeHistory", "totalCount", "totalPages", "pageSize"]
+      },
+      "GetAccountOrderHistoryResponse": {
+        "type": "object",
+        "properties": {
+          "orderHistory": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "orderId": {
+                  "type": "number"
+                },
+                "isBid": {
+                  "type": "boolean"
+                },
+                "base": {
+                  "$ref": "#/components/schemas/Token"
+                },
+                "quote": {
+                  "$ref": "#/components/schemas/Token"
+                },
+                "pair": {
+                  "type": "string"
+                },
+                "orderbook": {
+                  "type": "string"
+                },
+                "price": {
+                  "type": "number"
+                },
+                "amount": {
+                  "type": "number"
+                },
+                "timestamp": {
+                  "type": "number"
+                },
+                "account": {
+                  "type": "string"
+                },
+                "txHash": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "id",
+                "orderId",
+                "isBid",
+                "base",
+                "quote",
+                "pair",
+                "orderbook",
+                "price",
+                "amount",
+                "timestamp",
+                "account",
+                "txHash"
+              ]
+            }
+          },
+          "totalCount": {
+            "type": "number",
+            "example": 1
+          },
+          "totalPages": {
+            "type": "number",
+            "example": 1
+          },
+          "pageSize": {
+            "type": "number",
+            "example": 1
+          }
+        },
+        "required": ["orderHistory", "totalCount", "totalPages", "pageSize"]
+      },
+      "GetOrderbookRequest": {
+        "type": "object",
+        "properties": {
+          "mktPrice": {
+            "type": "number",
+            "example": 1e-8
+          },
+          "bids": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "price": {
+                  "type": "number",
+                  "example": 1e-8
+                },
+                "amount": {
+                  "type": "number",
+                  "example": 100
+                },
+                "count": {
+                  "type": "number",
+                  "example": 1
+                }
+              },
+              "required": ["price", "amount", "count"]
+            }
+          },
+          "asks": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "price": {
+                  "type": "number",
+                  "example": 1e-8
+                },
+                "amount": {
+                  "type": "number",
+                  "example": 100
+                },
+                "count": {
+                  "type": "number",
+                  "example": 1
+                }
+              },
+              "required": ["price", "amount", "count"]
+            }
+          },
+          "spread": {
+            "type": "number",
+            "example": 1e-8
+          },
+          "spreadPercentage": {
+            "type": "number",
+            "example": 0
+          }
+        },
+        "required": ["mktPrice", "bids", "asks", "spread", "spreadPercentage"]
+      },
+      "Pair": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "base": {
+            "$ref": "#/components/schemas/Token"
+          },
+          "quote": {
+            "$ref": "#/components/schemas/Token"
+          },
+          "price": {
+            "type": "number"
+          },
+          "listingDate": {
+            "type": "number"
+          },
+          "orderbook": {
+            "type": "string"
+          },
+          "bDecimal": {
+            "type": "number"
+          },
+          "qDecimal": {
+            "type": "number"
+          },
+          "totalMinBuckets": {
+            "type": "number"
+          },
+          "totalHourBuckets": {
+            "type": "number"
+          },
+          "totalDayBuckets": {
+            "type": "number"
+          },
+          "totalWeekBuckets": {
+            "type": "number"
+          },
+          "totalMonthBuckets": {
+            "type": "number"
+          },
+          "baseTvl": {
+            "type": "number"
+          },
+          "quoteTvl": {
+            "type": "number"
+          },
+          "baseTvlUSD": {
+            "type": "number"
+          },
+          "quoteTvlUSD": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "id",
+          "base",
+          "quote",
+          "price",
+          "listingDate",
+          "orderbook",
+          "bDecimal",
+          "qDecimal",
+          "totalMinBuckets",
+          "totalHourBuckets",
+          "totalDayBuckets",
+          "totalWeekBuckets",
+          "totalMonthBuckets",
+          "baseTvl",
+          "quoteTvl",
+          "baseTvlUSD",
+          "quoteTvlUSD"
+        ]
+      },
+      "AllPairsResponse": {
+        "type": "object",
+        "properties": {
+          "pairs": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Pair"
+            }
+          },
+          "totalCount": {
+            "type": "number",
+            "example": 1
+          },
+          "totalPages": {
+            "type": "number",
+            "example": 1
+          }
+        },
+        "required": ["pairs", "totalCount", "totalPages"]
+      },
+      "OhlcvTotalResponse": {
+        "type": "object",
+        "properties": {
+          "pairDayBuckets": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/OhlcvResponse"
+              },
+              {
+                "properties": {
+                  "buckets": {
+                    "type": "array",
+                    "items": {
+                      "allOf": [
+                        {
+                          "$ref": "#/components/schemas/PairBucket"
+                        },
+                        {
+                          "properties": {
+                            "id": {
+                              "type": "string",
+                              "example": "0xdAC17F958D2ee523a2206206994597C13D831ec7-0x6B175474E89094C44Da98b954EedeAC495271d0F-min"
+                            },
+                            "index": {
+                              "type": "number",
+                              "example": 1
+                            },
+                            "base": {
+                              "type": "string",
+                              "example": "0xdAC17F958D2ee523a2206206994597C13D831ec7"
+                            },
+                            "quote": {
+                              "type": "string",
+                              "example": "0x6B175474E89094C44Da98b954EedeAC495271d0F"
+                            },
+                            "orderbook": {
+                              "type": "string",
+                              "example": "0xdAC17F958D2ee523a2206206994597C13D831ec7"
+                            },
+                            "open": {
+                              "type": "number",
+                              "example": 1
+                            },
+                            "high": {
+                              "type": "number",
+                              "example": 1
+                            },
+                            "low": {
+                              "type": "number",
+                              "example": 1
+                            },
+                            "close": {
+                              "type": "number",
+                              "example": 1
+                            },
+                            "average": {
+                              "type": "number",
+                              "example": 1
+                            },
+                            "baseVolume": {
+                              "type": "number",
+                              "example": 1
+                            },
+                            "quoteVolume": {
+                              "type": "number",
+                              "example": 1
+                            },
+                            "baseVolumeUSD": {
+                              "type": "number",
+                              "example": 1
+                            },
+                            "quoteVolumeUSD": {
+                              "type": "number",
+                              "example": 1
+                            },
+                            "baseTvl": {
+                              "type": "number",
+                              "example": 1
+                            },
+                            "quoteTvl": {
+                              "type": "number",
+                              "example": 1
+                            },
+                            "baseTvlUSD": {
+                              "type": "number",
+                              "example": 1
+                            },
+                            "quoteTvlUSD": {
+                              "type": "number",
+                              "example": 1
+                            },
+                            "count": {
+                              "type": "number",
+                              "example": 1
+                            },
+                            "timestamp": {
+                              "type": "number",
+                              "example": 1620000000
+                            }
+                          },
+                          "required": [
+                            "id",
+                            "index",
+                            "base",
+                            "quote",
+                            "orderbook",
+                            "open",
+                            "high",
+                            "low",
+                            "close",
+                            "average",
+                            "baseVolume",
+                            "quoteVolume",
+                            "baseVolumeUSD",
+                            "quoteVolumeUSD",
+                            "baseTvl",
+                            "quoteTvl",
+                            "baseTvlUSD",
+                            "quoteTvlUSD",
+                            "count",
+                            "timestamp"
+                          ]
+                        }
+                      ]
+                    }
+                  },
+                  "totalCount": {
+                    "type": "number",
+                    "example": 1
+                  },
+                  "totalPages": {
+                    "type": "number",
+                    "example": 1
+                  },
+                  "pageSize": {
+                    "type": "number",
+                    "example": 1
+                  }
+                }
+              }
+            ]
+          },
+          "pairHourBuckets": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/OhlcvResponse"
+              },
+              {
+                "properties": {
+                  "buckets": {
+                    "type": "array",
+                    "items": {
+                      "allOf": [
+                        {
+                          "$ref": "#/components/schemas/PairBucket"
+                        },
+                        {
+                          "properties": {
+                            "id": {
+                              "type": "string",
+                              "example": "0xdAC17F958D2ee523a2206206994597C13D831ec7-0x6B175474E89094C44Da98b954EedeAC495271d0F-min"
+                            },
+                            "index": {
+                              "type": "number",
+                              "example": 1
+                            },
+                            "base": {
+                              "type": "string",
+                              "example": "0xdAC17F958D2ee523a2206206994597C13D831ec7"
+                            },
+                            "quote": {
+                              "type": "string",
+                              "example": "0x6B175474E89094C44Da98b954EedeAC495271d0F"
+                            },
+                            "orderbook": {
+                              "type": "string",
+                              "example": "0xdAC17F958D2ee523a2206206994597C13D831ec7"
+                            },
+                            "open": {
+                              "type": "number",
+                              "example": 1
+                            },
+                            "high": {
+                              "type": "number",
+                              "example": 1
+                            },
+                            "low": {
+                              "type": "number",
+                              "example": 1
+                            },
+                            "close": {
+                              "type": "number",
+                              "example": 1
+                            },
+                            "average": {
+                              "type": "number",
+                              "example": 1
+                            },
+                            "baseVolume": {
+                              "type": "number",
+                              "example": 1
+                            },
+                            "quoteVolume": {
+                              "type": "number",
+                              "example": 1
+                            },
+                            "baseVolumeUSD": {
+                              "type": "number",
+                              "example": 1
+                            },
+                            "quoteVolumeUSD": {
+                              "type": "number",
+                              "example": 1
+                            },
+                            "baseTvl": {
+                              "type": "number",
+                              "example": 1
+                            },
+                            "quoteTvl": {
+                              "type": "number",
+                              "example": 1
+                            },
+                            "baseTvlUSD": {
+                              "type": "number",
+                              "example": 1
+                            },
+                            "quoteTvlUSD": {
+                              "type": "number",
+                              "example": 1
+                            },
+                            "count": {
+                              "type": "number",
+                              "example": 1
+                            },
+                            "timestamp": {
+                              "type": "number",
+                              "example": 1620000000
+                            }
+                          },
+                          "required": [
+                            "id",
+                            "index",
+                            "base",
+                            "quote",
+                            "orderbook",
+                            "open",
+                            "high",
+                            "low",
+                            "close",
+                            "average",
+                            "baseVolume",
+                            "quoteVolume",
+                            "baseVolumeUSD",
+                            "quoteVolumeUSD",
+                            "baseTvl",
+                            "quoteTvl",
+                            "baseTvlUSD",
+                            "quoteTvlUSD",
+                            "count",
+                            "timestamp"
+                          ]
+                        }
+                      ]
+                    }
+                  },
+                  "totalCount": {
+                    "type": "number",
+                    "example": 1
+                  },
+                  "totalPages": {
+                    "type": "number",
+                    "example": 1
+                  },
+                  "pageSize": {
+                    "type": "number",
+                    "example": 1
+                  }
+                }
+              }
+            ]
+          },
+          "pairMinBuckets": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/OhlcvResponse"
+              },
+              {
+                "properties": {
+                  "buckets": {
+                    "type": "array",
+                    "items": {
+                      "allOf": [
+                        {
+                          "$ref": "#/components/schemas/PairBucket"
+                        },
+                        {
+                          "properties": {
+                            "id": {
+                              "type": "string",
+                              "example": "0xdAC17F958D2ee523a2206206994597C13D831ec7-0x6B175474E89094C44Da98b954EedeAC495271d0F-min"
+                            },
+                            "index": {
+                              "type": "number",
+                              "example": 1
+                            },
+                            "base": {
+                              "type": "string",
+                              "example": "0xdAC17F958D2ee523a2206206994597C13D831ec7"
+                            },
+                            "quote": {
+                              "type": "string",
+                              "example": "0x6B175474E89094C44Da98b954EedeAC495271d0F"
+                            },
+                            "orderbook": {
+                              "type": "string",
+                              "example": "0xdAC17F958D2ee523a2206206994597C13D831ec7"
+                            },
+                            "open": {
+                              "type": "number",
+                              "example": 1
+                            },
+                            "high": {
+                              "type": "number",
+                              "example": 1
+                            },
+                            "low": {
+                              "type": "number",
+                              "example": 1
+                            },
+                            "close": {
+                              "type": "number",
+                              "example": 1
+                            },
+                            "average": {
+                              "type": "number",
+                              "example": 1
+                            },
+                            "baseVolume": {
+                              "type": "number",
+                              "example": 1
+                            },
+                            "quoteVolume": {
+                              "type": "number",
+                              "example": 1
+                            },
+                            "baseVolumeUSD": {
+                              "type": "number",
+                              "example": 1
+                            },
+                            "quoteVolumeUSD": {
+                              "type": "number",
+                              "example": 1
+                            },
+                            "baseTvl": {
+                              "type": "number",
+                              "example": 1
+                            },
+                            "quoteTvl": {
+                              "type": "number",
+                              "example": 1
+                            },
+                            "baseTvlUSD": {
+                              "type": "number",
+                              "example": 1
+                            },
+                            "quoteTvlUSD": {
+                              "type": "number",
+                              "example": 1
+                            },
+                            "count": {
+                              "type": "number",
+                              "example": 1
+                            },
+                            "timestamp": {
+                              "type": "number",
+                              "example": 1620000000
+                            }
+                          },
+                          "required": [
+                            "id",
+                            "index",
+                            "base",
+                            "quote",
+                            "orderbook",
+                            "open",
+                            "high",
+                            "low",
+                            "close",
+                            "average",
+                            "baseVolume",
+                            "quoteVolume",
+                            "baseVolumeUSD",
+                            "quoteVolumeUSD",
+                            "baseTvl",
+                            "quoteTvl",
+                            "baseTvlUSD",
+                            "quoteTvlUSD",
+                            "count",
+                            "timestamp"
+                          ]
+                        }
+                      ]
+                    }
+                  },
+                  "totalCount": {
+                    "type": "number",
+                    "example": 1
+                  },
+                  "totalPages": {
+                    "type": "number",
+                    "example": 1
+                  },
+                  "pageSize": {
+                    "type": "number",
+                    "example": 1
+                  }
+                }
+              }
+            ]
+          },
+          "pairWeekBuckets": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/OhlcvResponse"
+              },
+              {
+                "properties": {
+                  "buckets": {
+                    "type": "array",
+                    "items": {
+                      "allOf": [
+                        {
+                          "$ref": "#/components/schemas/PairBucket"
+                        },
+                        {
+                          "properties": {
+                            "id": {
+                              "type": "string",
+                              "example": "0xdAC17F958D2ee523a2206206994597C13D831ec7-0x6B175474E89094C44Da98b954EedeAC495271d0F-min"
+                            },
+                            "index": {
+                              "type": "number",
+                              "example": 1
+                            },
+                            "base": {
+                              "type": "string",
+                              "example": "0xdAC17F958D2ee523a2206206994597C13D831ec7"
+                            },
+                            "quote": {
+                              "type": "string",
+                              "example": "0x6B175474E89094C44Da98b954EedeAC495271d0F"
+                            },
+                            "orderbook": {
+                              "type": "string",
+                              "example": "0xdAC17F958D2ee523a2206206994597C13D831ec7"
+                            },
+                            "open": {
+                              "type": "number",
+                              "example": 1
+                            },
+                            "high": {
+                              "type": "number",
+                              "example": 1
+                            },
+                            "low": {
+                              "type": "number",
+                              "example": 1
+                            },
+                            "close": {
+                              "type": "number",
+                              "example": 1
+                            },
+                            "average": {
+                              "type": "number",
+                              "example": 1
+                            },
+                            "baseVolume": {
+                              "type": "number",
+                              "example": 1
+                            },
+                            "quoteVolume": {
+                              "type": "number",
+                              "example": 1
+                            },
+                            "baseVolumeUSD": {
+                              "type": "number",
+                              "example": 1
+                            },
+                            "quoteVolumeUSD": {
+                              "type": "number",
+                              "example": 1
+                            },
+                            "baseTvl": {
+                              "type": "number",
+                              "example": 1
+                            },
+                            "quoteTvl": {
+                              "type": "number",
+                              "example": 1
+                            },
+                            "baseTvlUSD": {
+                              "type": "number",
+                              "example": 1
+                            },
+                            "quoteTvlUSD": {
+                              "type": "number",
+                              "example": 1
+                            },
+                            "count": {
+                              "type": "number",
+                              "example": 1
+                            },
+                            "timestamp": {
+                              "type": "number",
+                              "example": 1620000000
+                            }
+                          },
+                          "required": [
+                            "id",
+                            "index",
+                            "base",
+                            "quote",
+                            "orderbook",
+                            "open",
+                            "high",
+                            "low",
+                            "close",
+                            "average",
+                            "baseVolume",
+                            "quoteVolume",
+                            "baseVolumeUSD",
+                            "quoteVolumeUSD",
+                            "baseTvl",
+                            "quoteTvl",
+                            "baseTvlUSD",
+                            "quoteTvlUSD",
+                            "count",
+                            "timestamp"
+                          ]
+                        }
+                      ]
+                    }
+                  },
+                  "totalCount": {
+                    "type": "number",
+                    "example": 1
+                  },
+                  "totalPages": {
+                    "type": "number",
+                    "example": 1
+                  },
+                  "pageSize": {
+                    "type": "number",
+                    "example": 1
+                  }
+                }
+              }
+            ]
+          },
+          "pairMonthBuckets": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/OhlcvResponse"
+              },
+              {
+                "properties": {
+                  "buckets": {
+                    "type": "array",
+                    "items": {
+                      "allOf": [
+                        {
+                          "$ref": "#/components/schemas/PairBucket"
+                        },
+                        {
+                          "properties": {
+                            "id": {
+                              "type": "string",
+                              "example": "0xdAC17F958D2ee523a2206206994597C13D831ec7-0x6B175474E89094C44Da98b954EedeAC495271d0F-min"
+                            },
+                            "index": {
+                              "type": "number",
+                              "example": 1
+                            },
+                            "base": {
+                              "type": "string",
+                              "example": "0xdAC17F958D2ee523a2206206994597C13D831ec7"
+                            },
+                            "quote": {
+                              "type": "string",
+                              "example": "0x6B175474E89094C44Da98b954EedeAC495271d0F"
+                            },
+                            "orderbook": {
+                              "type": "string",
+                              "example": "0xdAC17F958D2ee523a2206206994597C13D831ec7"
+                            },
+                            "open": {
+                              "type": "number",
+                              "example": 1
+                            },
+                            "high": {
+                              "type": "number",
+                              "example": 1
+                            },
+                            "low": {
+                              "type": "number",
+                              "example": 1
+                            },
+                            "close": {
+                              "type": "number",
+                              "example": 1
+                            },
+                            "average": {
+                              "type": "number",
+                              "example": 1
+                            },
+                            "baseVolume": {
+                              "type": "number",
+                              "example": 1
+                            },
+                            "quoteVolume": {
+                              "type": "number",
+                              "example": 1
+                            },
+                            "baseVolumeUSD": {
+                              "type": "number",
+                              "example": 1
+                            },
+                            "quoteVolumeUSD": {
+                              "type": "number",
+                              "example": 1
+                            },
+                            "baseTvl": {
+                              "type": "number",
+                              "example": 1
+                            },
+                            "quoteTvl": {
+                              "type": "number",
+                              "example": 1
+                            },
+                            "baseTvlUSD": {
+                              "type": "number",
+                              "example": 1
+                            },
+                            "quoteTvlUSD": {
+                              "type": "number",
+                              "example": 1
+                            },
+                            "count": {
+                              "type": "number",
+                              "example": 1
+                            },
+                            "timestamp": {
+                              "type": "number",
+                              "example": 1620000000
+                            }
+                          },
+                          "required": [
+                            "id",
+                            "index",
+                            "base",
+                            "quote",
+                            "orderbook",
+                            "open",
+                            "high",
+                            "low",
+                            "close",
+                            "average",
+                            "baseVolume",
+                            "quoteVolume",
+                            "baseVolumeUSD",
+                            "quoteVolumeUSD",
+                            "baseTvl",
+                            "quoteTvl",
+                            "baseTvlUSD",
+                            "quoteTvlUSD",
+                            "count",
+                            "timestamp"
+                          ]
+                        }
+                      ]
+                    }
+                  },
+                  "totalCount": {
+                    "type": "number",
+                    "example": 1
+                  },
+                  "totalPages": {
+                    "type": "number",
+                    "example": 1
+                  },
+                  "pageSize": {
+                    "type": "number",
+                    "example": 1
+                  }
+                }
+              }
+            ]
+          }
+        },
+        "required": [
+          "pairDayBuckets",
+          "pairHourBuckets",
+          "pairMinBuckets",
+          "pairWeekBuckets",
+          "pairMonthBuckets"
+        ]
+      },
+      "TradingViewConfigResponse": {
+        "type": "object",
+        "properties": {
+          "supported_resolutions": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Array of supported resolutions",
+            "example": [
+              "1",
+              "2",
+              "5",
+              "15",
+              "30",
+              "60",
+              "120",
+              "240",
+              "360",
+              "720",
+              "D",
+              "1D",
+              "W",
+              "1W",
+              "M",
+              "1M"
+            ]
+          },
+          "supports_group_request": {
+            "type": "boolean",
+            "description": "Indicates if group requests are supported",
+            "example": false
+          },
+          "supports_marks": {
+            "type": "boolean",
+            "description": "Indicates if marks are supported",
+            "example": false
+          },
+          "supports_search": {
+            "type": "boolean",
+            "description": "Indicates if search is supported",
+            "example": true
+          },
+          "supports_timescale_marks": {
+            "type": "boolean",
+            "description": "Indicates if timescale marks are supported",
+            "example": false
+          }
+        },
+        "required": [
+          "supported_resolutions",
+          "supports_group_request",
+          "supports_marks",
+          "supports_search",
+          "supports_timescale_marks"
+        ]
+      },
+      "HistorySuccessResponse": {
+        "type": "object",
+        "properties": {
+          "s": {
+            "type": "string",
+            "enum": ["ok"],
+            "description": "Status of the response",
+            "example": "ok"
+          },
+          "t": {
+            "type": "array",
+            "items": {
+              "type": "integer"
+            },
+            "description": "Array of Unix timestamps",
+            "example": [1684127160, 1684127220]
+          },
+          "o": {
+            "type": "array",
+            "items": {
+              "type": "number"
+            },
+            "description": "Array of opening prices",
+            "example": [27281.83, 27297.19886]
+          },
+          "h": {
+            "type": "array",
+            "items": {
+              "type": "number"
+            },
+            "description": "Array of highest prices",
+            "example": [27296.75, 27300.03417102]
+          },
+          "l": {
+            "type": "array",
+            "items": {
+              "type": "number"
+            },
+            "description": "Array of lowest prices",
+            "example": [27279.24580449, 27292.33027595]
+          },
+          "c": {
+            "type": "array",
+            "items": {
+              "type": "number"
+            },
+            "description": "Array of closing prices",
+            "example": [27296.35698548, 27294]
+          },
+          "v": {
+            "type": "array",
+            "items": {
+              "type": "number"
+            },
+            "description": "Array of volumes",
+            "example": [0, 0]
+          }
+        },
+        "required": ["s", "t", "o", "h", "l", "c", "v"]
+      },
+      "TradingViewErrorResponse": {
+        "type": "object",
+        "properties": {
+          "s": {
+            "type": "string",
+            "enum": ["error"],
+            "description": "Status of the response",
+            "example": "error"
+          },
+          "errmsg": {
+            "type": "string",
+            "description": "Error message",
+            "example": "An error occurred."
+          }
+        },
+        "required": ["s", "errmsg"]
+      },
+      "TradingViewGroupsResponse": {
+        "type": "object",
+        "properties": {
+          "s": {
+            "type": "string",
+            "enum": ["ok"],
+            "description": "Status of the response",
+            "example": "ok"
+          },
+          "d": {
+            "type": "object",
+            "properties": {
+              "groups": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "description": "Group ID",
+                      "example": "stnd_meme"
+                    }
+                  },
+                  "required": ["id"]
+                },
+                "description": "Array of groups",
+                "example": [
+                  {
+                    "id": "stnd_stables"
+                  },
+                  {
+                    "id": "stnd_network"
+                  },
+                  {
+                    "id": "stnd_dapp"
+                  },
+                  {
+                    "id": "stnd_rwa"
+                  },
+                  {
+                    "id": "stnd_meme"
+                  }
+                ]
+              }
+            },
+            "required": ["groups"],
+            "description": "Data object containing groups"
+          }
+        },
+        "required": ["s", "d"]
+      },
+      "TradingViewStreamingResponse": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Symbol ID",
+            "example": "BTC/USD"
+          },
+          "p": {
+            "type": "number",
+            "description": "Price",
+            "example": 30416.745
+          },
+          "t": {
+            "type": "integer",
+            "description": "Unix timestamp",
+            "example": 1687766105
+          },
+          "f": {
+            "type": "string",
+            "description": "Flag",
+            "example": "t"
+          },
+          "s": {
+            "type": "integer",
+            "description": "Status",
+            "example": 0
+          }
+        },
+        "required": ["id", "p", "t", "f", "s"]
+      },
+      "TradingViewSymbolInfoResponse": {
+        "type": "object",
+        "properties": {
+          "s": {
+            "type": "string",
+            "enum": ["ok"],
+            "description": "Status of the response",
+            "example": "ok"
+          },
+          "symbol": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Array of symbols",
+            "example": ["BTCUSDT", "STND", "STNDUSDT"]
+          },
+          "description": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Array of descriptions",
+            "example": [
+              "Bitcoin / US DOLLAR",
+              "Standard (STND)",
+              "AAVE / US DOLLAR"
+            ]
+          },
+          "currency": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Array of currencies",
+            "example": ["USDT", "USD", "USDT"]
+          },
+          "exchange_listed": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Array of listed exchanges",
+            "example": ["Standard", "Standard", "Standard"]
+          },
+          "exchange_traded": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "nullable": true
+            },
+            "description": "Array of traded exchanges",
+            "example": ["Standard", "Standard", "Standard"]
+          },
+          "minmovement": {
+            "type": "array",
+            "items": {
+              "type": "number"
+            },
+            "description": "Array of minimum movements",
+            "example": [1, 1, 1]
+          },
+          "pricescale": {
+            "type": "array",
+            "items": {
+              "type": "number"
+            },
+            "description": "Array of price scales",
+            "example": [10000000, 10000000, 10000000]
+          },
+          "timezone": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Array of timezones",
+            "example": ["Etc/UTC", "Etc/UTC", "Etc/UTC"]
+          },
+          "type": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Array of types",
+            "example": ["spot", "spot", "spot"]
+          },
+          "session_regular": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Array of regular session times",
+            "example": ["24x7", "24x7", "24x7"]
+          },
+          "base_currency": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "nullable": true
+            },
+            "description": "Array of base currencies",
+            "example": ["BTC", "STND", "STND"]
+          },
+          "minmovement2": {
+            "type": "array",
+            "items": {
+              "type": "number"
+            },
+            "description": "Array of secondary minimum movements",
+            "example": [0, 0, 0]
+          },
+          "fractional": {
+            "type": "array",
+            "items": {
+              "type": "boolean"
+            },
+            "description": "Array of fractional indicators",
+            "example": [false, false, false]
+          },
+          "root": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "nullable": true
+            },
+            "description": "Array of roots",
+            "example": [null, null, null]
+          },
+          "root_description": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "nullable": true
+            },
+            "description": "Array of root descriptions",
+            "example": [null, null, null]
+          },
+          "has_intraday": {
+            "type": "array",
+            "items": {
+              "type": "boolean"
+            },
+            "description": "Array of intraday indicators",
+            "example": [true, true, true]
+          },
+          "has_no_volume": {
+            "type": "array",
+            "items": {
+              "type": "boolean"
+            },
+            "description": "Array of no volume indicators",
+            "example": [false, false, false]
+          },
+          "ticker": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Array of tickers",
+            "example": ["1INCH/USD", "AAPL/USD", "AAVE/USD"]
+          },
+          "supported_resolutions": {
+            "type": "array",
+            "items": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "description": "Array of supported resolutions",
+            "example": [["1"], ["1"], ["1"]]
+          },
+          "has_daily": {
+            "type": "array",
+            "items": {
+              "type": "boolean"
+            },
+            "description": "Array of daily indicators",
+            "example": [true, true, true]
+          },
+          "intraday_multipliers": {
+            "type": "array",
+            "items": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "description": "Array of intraday multipliers",
+            "example": [["1"], ["1"], ["1"]]
+          },
+          "has_weekly_and_monthly": {
+            "type": "array",
+            "items": {
+              "type": "boolean"
+            },
+            "description": "Array of weekly and monthly indicators",
+            "example": [true, true, true]
+          },
+          "pointvalue": {
+            "type": "array",
+            "items": {
+              "type": "number"
+            },
+            "description": "Array of point values",
+            "example": [1, 1, 1]
+          },
+          "expiration": {
+            "type": "array",
+            "items": {
+              "type": "number",
+              "nullable": true
+            },
+            "description": "Array of expirations",
+            "example": [null, null, null]
+          },
+          "bar_source": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Array of bar sources",
+            "example": ["trade", "trade", "trade"]
+          },
+          "bar_transform": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Array of bar transforms",
+            "example": ["none", "none", "none"]
+          },
+          "bar_fillgaps": {
+            "type": "array",
+            "items": {
+              "type": "boolean"
+            },
+            "description": "Array of bar fill gaps indicators",
+            "example": [false, false, false]
+          },
+          "typespecs": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Array of type specifications",
+            "example": ["spot", "spot", "spot"]
+          }
+        },
+        "required": [
+          "s",
+          "symbol",
+          "description",
+          "currency",
+          "exchange_listed",
+          "exchange_traded",
+          "minmovement",
+          "pricescale",
+          "timezone",
+          "type",
+          "session_regular",
+          "base_currency",
+          "minmovement2",
+          "fractional",
+          "root",
+          "root_description",
+          "has_intraday",
+          "has_no_volume",
+          "ticker",
+          "supported_resolutions",
+          "has_daily",
+          "intraday_multipliers",
+          "has_weekly_and_monthly",
+          "pointvalue",
+          "expiration",
+          "bar_source",
+          "bar_transform",
+          "bar_fillgaps",
+          "typespecs"
+        ]
+      },
+      "TradingViewSymbolSearchResponse": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "description": {
+              "type": "string",
+              "description": "Description of the symbol",
+              "example": "Bitcoin / US DOLLAR"
+            },
+            "exchange": {
+              "type": "string",
+              "description": "Exchange where the symbol is listed",
+              "example": "Standard"
+            },
+            "full_name": {
+              "type": "string",
+              "description": "Full name of the symbol",
+              "example": "BTCUSD"
+            },
+            "symbol": {
+              "type": "string",
+              "description": "Symbol name or ticker",
+              "example": "BTCUSD"
+            },
+            "ticker": {
+              "type": "string",
+              "description": "Ticker of the symbol",
+              "example": "BTC/USD"
+            },
+            "type": {
+              "type": "string",
+              "description": "Type of the symbol",
+              "example": "spot"
+            }
+          },
+          "required": [
+            "description",
+            "exchange",
+            "full_name",
+            "symbol",
+            "ticker",
+            "type"
+          ]
+        }
+      },
+      "TradingViewSymbolsResponse": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Symbol name",
+            "example": "BTCUSD"
+          },
+          "description": {
+            "type": "string",
+            "description": "Symbol description",
+            "example": "BITCOIN / US DOLLAR"
+          },
+          "session": {
+            "type": "string",
+            "description": "Trading session",
+            "example": "24x7"
+          },
+          "ticker": {
+            "type": "string",
+            "description": "Ticker symbol",
+            "example": "spot.BTC/USD"
+          },
+          "has_intraday": {
+            "type": "boolean",
+            "description": "Indicates if intraday data is available",
+            "example": true
+          },
+          "has_daily": {
+            "type": "boolean",
+            "description": "Indicates if daily data is available",
+            "example": true
+          },
+          "has_weekly_and_monthly": {
+            "type": "boolean",
+            "description": "Indicates if weekly and monthly data is available",
+            "example": true
+          },
+          "intraday_multipliers": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Array of intraday multipliers",
+            "example": [
+              "1",
+              "2",
+              "5",
+              "15",
+              "30",
+              "60",
+              "120",
+              "240",
+              "360",
+              "720"
+            ]
+          },
+          "daily_multipliers": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Array of daily multipliers",
+            "example": ["1"]
+          },
+          "weekly_multipliers": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Array of weekly multipliers",
+            "example": ["1"]
+          },
+          "monthly_multipliers": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Array of monthly multipliers",
+            "example": ["1"]
+          },
+          "timezone": {
+            "type": "string",
+            "description": "Timezone",
+            "example": "Etc/UTC"
+          },
+          "minmov": {
+            "type": "number",
+            "description": "Minimum movement",
+            "example": 1
+          },
+          "pricescale": {
+            "type": "number",
+            "description": "Price scale",
+            "example": 100000000
+          },
+          "supported_resolutions": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Array of supported resolutions",
+            "example": [
+              "1",
+              "2",
+              "5",
+              "15",
+              "30",
+              "60",
+              "120",
+              "240",
+              "360",
+              "720",
+              "D",
+              "1D",
+              "W",
+              "1W",
+              "M",
+              "1M"
+            ]
+          },
+          "exchange": {
+            "type": "string",
+            "description": "Exchange name",
+            "example": "Standard"
+          }
+        },
+        "required": [
+          "name",
+          "description",
+          "session",
+          "ticker",
+          "has_intraday",
+          "has_daily",
+          "has_weekly_and_monthly",
+          "intraday_multipliers",
+          "daily_multipliers",
+          "weekly_multipliers",
+          "monthly_multipliers",
+          "timezone",
+          "minmov",
+          "pricescale",
+          "supported_resolutions",
+          "exchange"
+        ]
+      },
+      "CoingeckoTicker": {
+        "type": "object",
+        "properties": {
+          "ticker_id": {
+            "type": "string",
+            "description": "Identifier of a ticker with delimiter to separate base/target, eg. BTC_ETH (Contract address for DEX)",
+            "example": "0x55d398326f99059ff775485246999027b3197955_0xbb4cdb9cbd36b01bd1cbaebf2de08d9173bc095c"
+          },
+          "base_currency": {
+            "type": "string",
+            "description": "Symbol/Currency code/Contract Address of a the base cryptoasset, eg. BTC (Contract address for DEX)",
+            "example": "0x55d398326f99059ff775485246999027b3197955"
+          },
+          "target_currency": {
+            "type": "string",
+            "description": "Symbol/Currency code/Contract Address of the target cryptoasset, eg. ETH (Contract address for DEX)",
+            "example": "0xbb4cdb9cbd36b01bd1cbaebf2de08d9173bc095c"
+          },
+          "pool_id": {
+            "type": "string",
+            "description": "Pool/pair address or unique ID (Mandatory for DEX)",
+            "example": "0x36696169c63e42cd08ce11f5deebbcebae652050"
+          },
+          "last_price": {
+            "type": "string",
+            "description": "Last transacted price of base currency based on given target currency. eg. X = ? 1 base = X target",
+            "example": "50.0"
+          },
+          "base_volume": {
+            "type": "string",
+            "description": "24 hour trading volume for the pair (unit in base)",
+            "example": "10"
+          },
+          "target_volume": {
+            "type": "string",
+            "description": "24 hour trading volume for the pair (unit in target)",
+            "example": "500"
+          },
+          "liquidity_in_usd": {
+            "type": "string",
+            "description": "Pool liquidity in USD (Not applicable to orderbook DEXes)",
+            "example": "100"
+          },
+          "bid": {
+            "type": "string",
+            "description": "Current highest bid price",
+            "example": "49.9"
+          },
+          "ask": {
+            "type": "string",
+            "description": "Current lowest ask price",
+            "example": "50.1"
+          },
+          "high": {
+            "type": "string",
+            "description": "Rolling 24-hours highest transaction price",
+            "example": "51.3"
+          },
+          "low": {
+            "type": "string",
+            "description": "Rolling 24-hours lowest transaction price",
+            "example": "49.2"
+          }
+        },
+        "required": [
+          "ticker_id",
+          "base_currency",
+          "target_currency",
+          "pool_id",
+          "last_price",
+          "base_volume",
+          "target_volume",
+          "liquidity_in_usd",
+          "bid",
+          "ask",
+          "high",
+          "low"
+        ]
+      },
+      "CoingeckoTickersResponse": {
+        "type": "array",
+        "items": {
+          "$ref": "#/components/schemas/CoingeckoTicker"
+        }
+      },
+      "CoingeckoOrderbookResponse": {
+        "type": "object",
+        "properties": {
+          "ticker_id": {
+            "type": "string",
+            "description": "A pair such as \"BTC_ETH\", with delimiter between different cryptoassets",
+            "example": "0x55d398326f99059ff775485246999027b3197955_0xbb4cdb9cbd36b01bd1cbaebf2de08d9173bc095c"
+          },
+          "timestamp": {
+            "type": "number",
+            "description": "Unix timestamp in milliseconds for when the last updated time occurred",
+            "example": 1640995200000
+          },
+          "bids": {
+            "type": "array",
+            "items": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "description": "An array containing 2 elements. The offer price and quantity for each bid order",
+            "example": [
+              ["49.9", "10.5"],
+              ["49.8", "15.2"],
+              ["49.7", "8.1"]
+            ]
+          },
+          "asks": {
+            "type": "array",
+            "items": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "description": "An array containing 2 elements. The ask price and quantity for each ask order",
+            "example": [
+              ["50.1", "12.3"],
+              ["50.2", "9.7"],
+              ["50.3", "6.4"]
+            ]
+          }
+        },
+        "required": ["ticker_id", "bids", "asks"]
+      },
+      "CoingeckoHistoricalResponse": {
+        "type": "object",
+        "properties": {
+          "trade_id": {
+            "type": "number",
+            "description": "A unique ID associated with the trade for the currency pair transaction. Note: Unix timestamp does not qualify as trade_id.",
+            "example": 123456789
+          },
+          "price": {
+            "type": "string",
+            "description": "Transaction price of base asset in target currency",
+            "example": "50.25"
+          },
+          "base_volume": {
+            "type": "string",
+            "description": "Transaction amount in base pair volume",
+            "example": "10.5"
+          },
+          "target_volume": {
+            "type": "string",
+            "description": "Transaction amount in target pair volume",
+            "example": "527.625"
+          },
+          "trade_timestamp": {
+            "type": "number",
+            "description": "Unix timestamp in milliseconds for when the transaction occurred",
+            "example": 1640995200000
+          },
+          "type": {
+            "type": "string",
+            "description": "Used to determine the type of the transaction that was completed. Buy – Identifies an ask that was removed from the order book. Sell – Identifies a bid that was removed from the order book.",
+            "example": "buy"
+          }
+        },
+        "required": [
+          "trade_id",
+          "price",
+          "base_volume",
+          "target_volume",
+          "trade_timestamp",
+          "type"
+        ]
+      }
+    },
+    "parameters": {}
+  },
+  "paths": {
+    "/api/exchange": {
+      "get": {
+        "summary": "Get Exchange data",
+        "description": "Get Exchange data related to factory contract, total status data counts",
+        "tags": ["Exchange"],
+        "responses": {
+          "200": {
+            "description": "OHLCV data is retrieved",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string"
+                    },
+                    "bytecode": {
+                      "type": "string"
+                    },
+                    "deployer": {
+                      "type": "string"
+                    },
+                    "totalDayBuckets": {
+                      "type": "number"
+                    },
+                    "totalWeekBuckets": {
+                      "type": "number"
+                    },
+                    "totalMonthBuckets": {
+                      "type": "number"
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "bytecode",
+                    "deployer",
+                    "totalDayBuckets",
+                    "totalWeekBuckets",
+                    "totalMonthBuckets"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/exchange/status/{interval}/{pageSize}/{page}": {
+      "get": {
+        "summary": "Get Exchange status data with pagination",
+        "description": "Get minute, hour, day, week, or month exchange status data with pagination",
+        "tags": ["Exchange", "Status"],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "enum": ["day", "week", "month"],
+              "description": "Time interval of the OHLCV data",
+              "example": "day"
+            },
+            "required": true,
+            "name": "interval",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "Timestamp in seconds",
+              "example": "1620000000"
+            },
+            "required": false,
+            "name": "timestamp",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "Number of results per page",
+              "example": "100"
+            },
+            "required": true,
+            "name": "pageSize",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "Page number",
+              "example": "1"
+            },
+            "required": true,
+            "name": "page",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OHLCV data is retrieved",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OhlcvResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/exchange/status/{interval}/before/{timestamp}/{pageSize}/{page}": {
+      "get": {
+        "summary": "Get Exchange status data before a timestamp",
+        "description": "Get minute, hour, day, week, or month exchange status data with pagination before a timestamp",
+        "tags": ["Exchange", "Status"],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "enum": ["day", "week", "month"],
+              "description": "Time interval of the OHLCV data",
+              "example": "day"
+            },
+            "required": true,
+            "name": "interval",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "Timestamp in seconds",
+              "example": "1620000000"
+            },
+            "required": false,
+            "name": "timestamp",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "Number of results per page",
+              "example": "100"
+            },
+            "required": true,
+            "name": "pageSize",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "Page number",
+              "example": "1"
+            },
+            "required": true,
+            "name": "page",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OHLCV data is retrieved",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OhlcvResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/exchange/status/{interval}/after/{timestamp}/{pageSize}/{page}": {
+      "get": {
+        "summary": "Get Exchange status data after a timestamp",
+        "description": "Get minute, hour, day, week, or month exchange status data with pagination after a timestamp",
+        "tags": ["Exchange", "Status"],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "enum": ["day", "week", "month"],
+              "description": "Time interval of the OHLCV data",
+              "example": "day"
+            },
+            "required": true,
+            "name": "interval",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "Timestamp in seconds",
+              "example": "1620000000"
+            },
+            "required": false,
+            "name": "timestamp",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "Number of results per page",
+              "example": "100"
+            },
+            "required": true,
+            "name": "pageSize",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "Page number",
+              "example": "1"
+            },
+            "required": true,
+            "name": "page",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OHLCV data is retrieved",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OhlcvResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/account/{address}": {
+      "get": {
+        "summary": "Get Account data",
+        "description": "Get Account status data regarding volume, trades, orders, etc.",
+        "tags": ["Account"],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "description": "The address of the account",
+              "example": "0xF8FB4672170607C95663f4Cc674dDb1386b7CfE0"
+            },
+            "required": true,
+            "name": "address",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "orderbook data is retrieved",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "description": "The address of the account",
+                      "example": "0xF8FB4672170607C95663f4Cc674dDb1386b7CfE0"
+                    },
+                    "tvlUSD": {
+                      "type": "number",
+                      "description": "The total value locked in USD",
+                      "example": 1000000
+                    },
+                    "lastTraded": {
+                      "type": "number",
+                      "description": "The last traded",
+                      "example": 1000000
+                    },
+                    "totalOrders": {
+                      "type": "number",
+                      "description": "The total orders that a user has currently",
+                      "example": 1000000
+                    },
+                    "totalOrderHistory": {
+                      "type": "number",
+                      "description": "The total order history that a user has currently",
+                      "example": 1000000
+                    },
+                    "totalTradeHistory": {
+                      "type": "number",
+                      "description": "The total trade number of records that a user has currently",
+                      "example": 1000000
+                    },
+                    "totalVolumeUSD": {
+                      "type": "number",
+                      "description": "The total USD volume of trades that a user has currently",
+                      "example": 1000000
+                    },
+                    "totalCreatedTokens": {
+                      "type": "number",
+                      "description": "The total created tokens",
+                      "example": 1000000
+                    },
+                    "tradedPairs": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      },
+                      "description": "The pairs that the account has traded",
+                      "example": ["BTC/ETH", "ETH/USDC"]
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "tvlUSD",
+                    "lastTraded",
+                    "totalOrders",
+                    "totalOrderHistory",
+                    "totalTradeHistory",
+                    "totalVolumeUSD",
+                    "totalCreatedTokens",
+                    "tradedPairs"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/account/trader-status/{address}": {
+      "get": {
+        "summary": "Get Trader status data",
+        "description": "Get Trader status data regarding volume, trades, orders, etc.",
+        "tags": ["Account"],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "description": "The address of the account",
+              "example": "0xF8FB4672170607C95663f4Cc674dDb1386b7CfE0"
+            },
+            "required": true,
+            "name": "address",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "orderbook data is retrieved",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "totalVolumeUSD": {
+                      "type": "number",
+                      "description": "The total volume of trades that the account has made",
+                      "example": 1000000
+                    },
+                    "rank": {
+                      "type": "number",
+                      "description": "The rank of the trader in the top active traders list",
+                      "example": 1
+                    },
+                    "percentile": {
+                      "type": "number",
+                      "description": "The percentile of the trader in the top active traders list",
+                      "example": 0.5
+                    },
+                    "volumeRatio": {
+                      "type": "number",
+                      "description": "The ratio of the volume of trades that the account has made on the exchange to the total volume in exchange in percentage",
+                      "example": 0.5
+                    }
+                  },
+                  "required": [
+                    "totalVolumeUSD",
+                    "rank",
+                    "percentile",
+                    "volumeRatio"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/account/active-traders/{pageSize}/{page}": {
+      "get": {
+        "summary": "Get Top Active Traders data",
+        "description": "Get Top Active Traders data regarding volume, trades, orders, etc.",
+        "tags": ["Account"],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "description": "The address of the account",
+              "example": "0xF8FB4672170607C95663f4Cc674dDb1386b7CfE0"
+            },
+            "required": true,
+            "name": "address",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "orderbook data is retrieved",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "address": {
+                      "type": "string",
+                      "description": "The address of the trader",
+                      "example": "0xF8FB4672170607C95663f4Cc674dDb1386b7CfE0"
+                    },
+                    "tradedPairs": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      },
+                      "description": "The pairs that the trader has traded",
+                      "example": ["BTC/ETH", "ETH/USDC"]
+                    },
+                    "rank": {
+                      "type": "number",
+                      "description": "The rank of the trader in the top active traders list",
+                      "example": 1
+                    },
+                    "totalVolumeUSD": {
+                      "type": "number",
+                      "description": "The total volume of trades that the trader has made in USD",
+                      "example": 1000000
+                    },
+                    "volumeRatio": {
+                      "type": "number",
+                      "description": "The ratio of the volume of trades that the trader has made on the exchange to the total volume in exchange in percentage",
+                      "example": 0.5
+                    }
+                  },
+                  "required": [
+                    "address",
+                    "tradedPairs",
+                    "rank",
+                    "totalVolumeUSD",
+                    "volumeRatio"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/token/{interval}/{address}/{pageSize}/{page}": {
+      "get": {
+        "summary": "Get Token timeseries data",
+        "description": "Get minute, hour, day, week, or month token data with pagination",
+        "tags": ["Token"],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "enum": ["min", "hour", "day", "week", "month"],
+              "description": "Time interval of the OHLCV data",
+              "example": "hour"
+            },
+            "required": true,
+            "name": "interval",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "maxLength": 42,
+              "description": "Token address",
+              "example": "0xe8CabF9d1FFB6CE23cF0a86641849543ec7BD7d5"
+            },
+            "required": true,
+            "name": "address",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "Timestamp in seconds",
+              "example": "1620000000"
+            },
+            "required": false,
+            "name": "timestamp",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "Number of results per page",
+              "example": "100"
+            },
+            "required": true,
+            "name": "pageSize",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "Page number",
+              "example": "1"
+            },
+            "required": true,
+            "name": "page",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Token progress data is retrieved",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TokenBucketsResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/token/{interval}/{address}/before/{timestamp}/{pageSize}/{page}": {
+      "get": {
+        "summary": "Get Token timeseries data before a timestamp",
+        "description": "Get minute, hour, day, week, or month token data with pagination before a timestamp",
+        "tags": ["Token"],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "enum": ["min", "hour", "day", "week", "month"],
+              "description": "Time interval of the OHLCV data",
+              "example": "hour"
+            },
+            "required": true,
+            "name": "interval",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "maxLength": 42,
+              "description": "Token address",
+              "example": "0xe8CabF9d1FFB6CE23cF0a86641849543ec7BD7d5"
+            },
+            "required": true,
+            "name": "address",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "Timestamp in seconds",
+              "example": "1620000000"
+            },
+            "required": false,
+            "name": "timestamp",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "Number of results per page",
+              "example": "100"
+            },
+            "required": true,
+            "name": "pageSize",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "Page number",
+              "example": "1"
+            },
+            "required": true,
+            "name": "page",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Token progress data is retrieved",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TokenBucketsResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/token/{interval}/{address}/after/{timestamp}/{pageSize}/{page}": {
+      "get": {
+        "summary": "Get Token timeseries data after a timestamp",
+        "description": "Get minute, hour, day, week, or month token data with pagination after a timestamp",
+        "tags": ["Token"],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "enum": ["min", "hour", "day", "week", "month"],
+              "description": "Time interval of the OHLCV data",
+              "example": "hour"
+            },
+            "required": true,
+            "name": "interval",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "maxLength": 42,
+              "description": "Token address",
+              "example": "0xe8CabF9d1FFB6CE23cF0a86641849543ec7BD7d5"
+            },
+            "required": true,
+            "name": "address",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "Timestamp in seconds",
+              "example": "1620000000"
+            },
+            "required": false,
+            "name": "timestamp",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "Number of results per page",
+              "example": "100"
+            },
+            "required": true,
+            "name": "pageSize",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "Page number",
+              "example": "1"
+            },
+            "required": true,
+            "name": "page",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Token progress data is retrieved",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TokenBucketsResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/token/{address}": {
+      "get": {
+        "summary": "Get Token data",
+        "description": "Retrieve the token information from token address",
+        "tags": ["Token"],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "maxLength": 42,
+              "example": "0xe8CabF9d1FFB6CE23cF0a86641849543ec7BD7d5"
+            },
+            "required": true,
+            "name": "address",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Retrieve the token information",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Token"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/token/symbol/{symbol}": {
+      "get": {
+        "summary": "Get Token data by symbol",
+        "description": "Retrieve the token information from token symbol",
+        "tags": ["Token"],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "example": "USDT"
+            },
+            "required": true,
+            "name": "symbol",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Retrieve the token information from token symbol search",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Token"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/tokens/{pageSize}/{page}": {
+      "get": {
+        "summary": "Get Tokens data",
+        "description": "Retrieve the token information from a list of all tokens",
+        "tags": ["Token"],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "example": "10"
+            },
+            "required": true,
+            "name": "pageSize",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "example": "1"
+            },
+            "required": true,
+            "name": "page",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Retrieve the token information",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Tokens"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/tokens/new/{pageSize}/{page}": {
+      "get": {
+        "summary": "Get new listed tokens data",
+        "description": "Retrieve the token information from a list of all tokens in the order of getting listed",
+        "tags": ["Token"],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "example": "10"
+            },
+            "required": true,
+            "name": "pageSize",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "example": "1"
+            },
+            "required": true,
+            "name": "page",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Retrieve the token information",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Tokens"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/tokens/top-gainer/{pageSize}/{page}": {
+      "get": {
+        "summary": "Get top gainer tokens data",
+        "description": "Retrieve the token information from a list of all tokens in the order of getting listed",
+        "tags": ["Token"],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "example": "10"
+            },
+            "required": true,
+            "name": "pageSize",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "example": "1"
+            },
+            "required": true,
+            "name": "page",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Retrieve the token information",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Tokens"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/tokens/top-loser/{pageSize}/{page}": {
+      "get": {
+        "summary": "Get top loser tokens data",
+        "description": "Retrieve the token information from a list of all tokens in the order of getting listed",
+        "tags": ["Token"],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "example": "10"
+            },
+            "required": true,
+            "name": "pageSize",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "example": "1"
+            },
+            "required": true,
+            "name": "page",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Retrieve the token information",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Tokens"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/tokens/top-volume/{pageSize}/{page}": {
+      "get": {
+        "summary": "Get top volume tokens data",
+        "description": "Retrieve the token information from a list of all tokens in the order of getting listed",
+        "tags": ["Token"],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "example": "10"
+            },
+            "required": true,
+            "name": "pageSize",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "example": "1"
+            },
+            "required": true,
+            "name": "page",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Retrieve the token information",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Tokens"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/token/sparklines/{address}": {
+      "get": {
+        "summary": "Get Token sparklines data",
+        "description": "Retrieve the token sparklines information from token address",
+        "tags": ["Token"],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "maxLength": 42,
+              "example": "0xe8CabF9d1FFB6CE23cF0a86641849543ec7BD7d5"
+            },
+            "required": true,
+            "name": "address",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Retrieve the token information",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Token"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/orders/{address}/{pageSize}/{page}": {
+      "get": {
+        "summary": "Get Orders data from an account",
+        "description": "Retrieve the orders information from an account address",
+        "tags": ["Orders", "Account"],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "maxLength": 42,
+              "example": "0xdAC17F958D2ee523a2206206994597C13D831ec7"
+            },
+            "required": true,
+            "name": "address",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "Number of results per page",
+              "example": "100"
+            },
+            "required": true,
+            "name": "pageSize",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "Page number",
+              "example": "1"
+            },
+            "required": true,
+            "name": "page",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Retrieve the token information",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetAccountOrdersResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/trades/pair/{base}/{quote}/{pageSize}/{page}": {
+      "get": {
+        "summary": "Get Recent Trades for a Pair",
+        "description": "Retrieve the recent trades for a pair with base and quote token addresses",
+        "tags": ["Trade", "Pair"],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "maxLength": 42,
+              "description": "Base token address",
+              "example": "0x008fCD6315c68EbAa31244aea174993f63Ef14D5"
+            },
+            "required": true,
+            "name": "base",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "maxLength": 42,
+              "description": "Quote token address",
+              "example": "0x1f18a1724D8960f10165788dba3123F3f5623BB9"
+            },
+            "required": true,
+            "name": "quote",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "Number of results per page",
+              "example": "100"
+            },
+            "required": true,
+            "name": "pageSize",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "Page number",
+              "example": "1"
+            },
+            "required": true,
+            "name": "page",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Retrieve the pair recent trades information",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TradesSchema"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/trades/latest": {
+      "get": {
+        "summary": "Get Most Recent Trade",
+        "description": "Retrieve the most recent trade from all pairs",
+        "tags": ["Trade"],
+        "responses": {
+          "200": {
+            "description": "Retrieve the most recent trade",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string"
+                    },
+                    "orderbook": {
+                      "type": "string"
+                    },
+                    "orderId": {
+                      "type": "number"
+                    },
+                    "base": {
+                      "$ref": "#/components/schemas/Token"
+                    },
+                    "quote": {
+                      "$ref": "#/components/schemas/Token"
+                    },
+                    "pair": {
+                      "type": "string"
+                    },
+                    "isBid": {
+                      "type": "boolean"
+                    },
+                    "price": {
+                      "type": "number"
+                    },
+                    "baseAmount": {
+                      "type": "number"
+                    },
+                    "quoteAmount": {
+                      "type": "number"
+                    },
+                    "timestamp": {
+                      "type": "number"
+                    },
+                    "taker": {
+                      "type": "string"
+                    },
+                    "maker": {
+                      "type": "string"
+                    },
+                    "txHash": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "orderbook",
+                    "orderId",
+                    "base",
+                    "quote",
+                    "pair",
+                    "isBid",
+                    "price",
+                    "baseAmount",
+                    "quoteAmount",
+                    "timestamp",
+                    "taker",
+                    "maker",
+                    "txHash"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/tradehistory/{address}/{pageSize}/{page}": {
+      "get": {
+        "summary": "Get Account Trade History",
+        "description": "Retrieve the trade history for an account address",
+        "tags": ["TradeHistory", "Account"],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "maxLength": 42,
+              "example": "0xdAC17F958D2ee523a2206206994597C13D831ec7"
+            },
+            "required": true,
+            "name": "address",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "Number of results per page",
+              "example": "100"
+            },
+            "required": true,
+            "name": "pageSize",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "Page number",
+              "example": "1"
+            },
+            "required": true,
+            "name": "page",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Retrieve the token information",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetAccountTradeHistoryResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/orderhistory/{address}/{pageSize}/{page}": {
+      "get": {
+        "summary": "Get Account Order History",
+        "description": "Retrieve the order history for an account address",
+        "tags": ["OrderHistory", "Account"],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "maxLength": 42,
+              "example": "0xdAC17F958D2ee523a2206206994597C13D831ec7"
+            },
+            "required": true,
+            "name": "address",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "Number of results per page",
+              "example": "100"
+            },
+            "required": true,
+            "name": "pageSize",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "Page number",
+              "example": "1"
+            },
+            "required": true,
+            "name": "page",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Retrieve the token information",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetAccountOrderHistoryResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/matchhistory/{base}/{quote}/{address}/{orderHistoryId}/{pageSize}/{page}": {
+      "get": {
+        "summary": "Get Account Order Match History",
+        "description": "Retrieve the match history for an account address's order history",
+        "tags": ["OrderHistory", "Account", "MatchHistory"],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "maxLength": 42,
+              "example": "0x0000000000000000000000000000000000000000"
+            },
+            "required": true,
+            "name": "base",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "maxLength": 42,
+              "example": "0x0000000000000000000000000000000000000000"
+            },
+            "required": true,
+            "name": "quote",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "maxLength": 42,
+              "example": "0xdAC17F958D2ee523a2206206994597C13D831ec7"
+            },
+            "required": true,
+            "name": "address",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "example": "1"
+            },
+            "required": true,
+            "name": "orderHistoryId",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Retrieve the match history information of an order history",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/GetAccountTradeHistoryResponse"
+                    },
+                    {
+                      "properties": {
+                        "matchHistories": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "id": {
+                                "type": "string"
+                              },
+                              "orderbook": {
+                                "type": "string"
+                              },
+                              "orderId": {
+                                "type": "number"
+                              },
+                              "base": {
+                                "$ref": "#/components/schemas/Token"
+                              },
+                              "quote": {
+                                "$ref": "#/components/schemas/Token"
+                              },
+                              "pair": {
+                                "type": "string"
+                              },
+                              "isBid": {
+                                "type": "boolean"
+                              },
+                              "price": {
+                                "type": "number"
+                              },
+                              "baseAmount": {
+                                "type": "number"
+                              },
+                              "quoteAmount": {
+                                "type": "number"
+                              },
+                              "timestamp": {
+                                "type": "number"
+                              },
+                              "taker": {
+                                "type": "string"
+                              },
+                              "maker": {
+                                "type": "string"
+                              },
+                              "txHash": {
+                                "type": "string"
+                              }
+                            },
+                            "required": [
+                              "id",
+                              "orderbook",
+                              "orderId",
+                              "base",
+                              "quote",
+                              "pair",
+                              "isBid",
+                              "price",
+                              "baseAmount",
+                              "quoteAmount",
+                              "timestamp",
+                              "taker",
+                              "maker",
+                              "txHash"
+                            ]
+                          }
+                        },
+                        "totalCount": {
+                          "type": "number",
+                          "example": 1
+                        },
+                        "totalPages": {
+                          "type": "number",
+                          "example": 1
+                        },
+                        "pageSize": {
+                          "type": "number",
+                          "example": 1
+                        }
+                      },
+                      "required": [
+                        "matchHistories",
+                        "totalCount",
+                        "totalPages",
+                        "pageSize"
+                      ]
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/orderbook/ticks/{base}/{quote}/{limit}": {
+      "get": {
+        "summary": "Get Orderbook data from base and quote token addresses",
+        "description": "Retrieve the orderbook information from base and quote token addresses",
+        "tags": ["Orderbook"],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "maxLength": 42,
+              "example": "0xe8CabF9d1FFB6CE23cF0a86641849543ec7BD7d5"
+            },
+            "required": true,
+            "name": "base",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "maxLength": 42,
+              "example": "0x40fCa9cB1AB15eD9B5bDA19A52ac00A78AE08e1D"
+            },
+            "required": true,
+            "name": "quote",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "example": "100"
+            },
+            "required": false,
+            "name": "limit",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Retrieve the orderbook information",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetOrderbookRequest"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/orderbook/blocks/{base}/{quote}/{step}/{depth}/{isSingle}": {
+      "get": {
+        "summary": "Get Orderbook data from base and quote token addresses with scale",
+        "description": "Retrieve the orderbook information from base and quote token addresses with scale",
+        "tags": ["Orderbook"],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "maxLength": 42,
+              "example": "0xe8CabF9d1FFB6CE23cF0a86641849543ec7BD7d5"
+            },
+            "required": true,
+            "name": "base",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "maxLength": 42,
+              "example": "0x40fCa9cB1AB15eD9B5bDA19A52ac00A78AE08e1D"
+            },
+            "required": true,
+            "name": "quote",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "example": "100"
+            },
+            "required": true,
+            "description": "The depth of the orderbook in number of order blocks",
+            "name": "depth",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "example": "0.01"
+            },
+            "required": true,
+            "name": "step",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "example": "true"
+            },
+            "required": true,
+            "name": "isSingle",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Retrieve the orderbook information with scale",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetOrderbookRequest"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/pair/{base}/{quote}": {
+      "get": {
+        "tags": ["Pair"],
+        "summary": "Get Pair data",
+        "description": "Get pair details from base and quote token addresses",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "maxLength": 42,
+              "description": "Base token address",
+              "example": "0xe8CabF9d1FFB6CE23cF0a86641849543ec7BD7d5"
+            },
+            "required": true,
+            "name": "base",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "maxLength": 42,
+              "description": "Quote token address",
+              "example": "0x40fCa9cB1AB15eD9B5bDA19A52ac00A78AE08e1D"
+            },
+            "required": true,
+            "name": "quote",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OHLCV data is retrieved",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Pair"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/pair/default": {
+      "get": {
+        "tags": ["Pair"],
+        "summary": "Get Default Pair data",
+        "description": "Get default pair details",
+        "responses": {
+          "200": {
+            "description": "OHLCV data is retrieved",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Pair"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/pair/symbol/{baseSymbol}/{quoteSymbol}": {
+      "get": {
+        "tags": ["Pair"],
+        "summary": "Get Pair data by symbol",
+        "description": "Get pair details from base and quote token symbols",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "description": "Base token symbol",
+              "example": "ETH"
+            },
+            "required": true,
+            "name": "baseSymbol",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "Quote token symbol",
+              "example": "USDT"
+            },
+            "required": true,
+            "name": "quoteSymbol",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OHLCV data is retrieved",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Pair"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/pairs/new/{pageSize}/{page}": {
+      "get": {
+        "tags": ["Pair"],
+        "summary": "Get New Listing Pairs data",
+        "description": "Get paginated newly listed Pair data from a list of all pairs",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "description": "Number of results per page",
+              "example": "100"
+            },
+            "required": true,
+            "name": "pageSize",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "Page number",
+              "example": "1"
+            },
+            "required": true,
+            "name": "page",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Paginated Pair data is retrieved",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AllPairsResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/pairs/top-gainer/{pageSize}/{page}": {
+      "get": {
+        "tags": ["Pair"],
+        "summary": "Get Top Gainer Pairs data",
+        "description": "Get paginated top gainer Pair data from a list of all pairs",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "description": "Number of results per page",
+              "example": "100"
+            },
+            "required": true,
+            "name": "pageSize",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "Page number",
+              "example": "1"
+            },
+            "required": true,
+            "name": "page",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Paginated Pair data is retrieved",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AllPairsResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/pairs/top-loser/{pageSize}/{page}": {
+      "get": {
+        "tags": ["Pair"],
+        "summary": "Get Top Loser Pairs data",
+        "description": "Get paginated top loser Pair data from a list of all pairs",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "description": "Number of results per page",
+              "example": "100"
+            },
+            "required": true,
+            "name": "pageSize",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "Page number",
+              "example": "1"
+            },
+            "required": true,
+            "name": "page",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Paginated Pair data is retrieved",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AllPairsResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/pairs/top-volume/{pageSize}/{page}": {
+      "get": {
+        "tags": ["Pair"],
+        "summary": "Get Top Volume Pairs data",
+        "description": "Get paginated top volume Pair data from a list of all pairs",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "description": "Number of results per page",
+              "example": "100"
+            },
+            "required": true,
+            "name": "pageSize",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "Page number",
+              "example": "1"
+            },
+            "required": true,
+            "name": "page",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Paginated Pair data is retrieved",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AllPairsResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/pairs/{pageSize}/{page}": {
+      "get": {
+        "tags": ["Pair"],
+        "summary": "Get all Pairs data",
+        "description": "Get paginated Pair data from a list of all pairs",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "description": "Number of results per page",
+              "example": "100"
+            },
+            "required": true,
+            "name": "pageSize",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "Page number",
+              "example": "1"
+            },
+            "required": true,
+            "name": "page",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Paginated Pair data is retrieved",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AllPairsResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/basePairs/{baseSymbol}": {
+      "get": {
+        "tags": ["Pair"],
+        "summary": "Get all base pairs data",
+        "description": "Get paginated base pairs data from a list of all base pairs",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "description": "Base token symbol",
+            "name": "baseSymbol",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Paginated Pair data is retrieved",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AllPairsResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/ohlcv/total/{base}/{quote}/{pageSize}/{page}": {
+      "get": {
+        "summary": "Get all OHLCV data from a pair",
+        "description": "Get all minute, hour, day, week, and month OHLCV data with pagination",
+        "tags": ["OHLCV", "Pair"],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "maxLength": 42,
+              "description": "Base token address",
+              "example": "0x008fCD6315c68EbAa31244aea174993f63Ef14D5"
+            },
+            "required": true,
+            "name": "base",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "maxLength": 42,
+              "description": "Quote token address",
+              "example": "0x1f18a1724D8960f10165788dba3123F3f5623BB9"
+            },
+            "required": true,
+            "name": "quote",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "Timestamp in seconds",
+              "example": "1620000000"
+            },
+            "required": false,
+            "name": "timestamp",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "Number of results per page",
+              "example": "100"
+            },
+            "required": true,
+            "name": "pageSize",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "Page number",
+              "example": "1"
+            },
+            "required": true,
+            "name": "page",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OHLCV data is retrieved",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OhlcvTotalResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/ohlcv/{interval}/{base}/{quote}/{pageSize}/{page}": {
+      "get": {
+        "summary": "Get OHLCV data from a pair",
+        "description": "Get minute, hour, day, week, or month OHLCV data with pagination",
+        "tags": ["OHLCV", "Pair"],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "enum": ["min", "hour", "day", "week", "month"],
+              "description": "Time interval of the OHLCV data",
+              "example": "hour"
+            },
+            "required": true,
+            "name": "interval",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "maxLength": 42,
+              "description": "Base token address",
+              "example": "0x008fCD6315c68EbAa31244aea174993f63Ef14D5"
+            },
+            "required": true,
+            "name": "base",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "maxLength": 42,
+              "description": "Quote token address",
+              "example": "0x1f18a1724D8960f10165788dba3123F3f5623BB9"
+            },
+            "required": true,
+            "name": "quote",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "Timestamp in seconds",
+              "example": "1620000000"
+            },
+            "required": false,
+            "name": "timestamp",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "Number of results per page",
+              "example": "100"
+            },
+            "required": true,
+            "name": "pageSize",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "Page number",
+              "example": "1"
+            },
+            "required": true,
+            "name": "page",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OHLCV data is retrieved",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/OhlcvResponse"
+                    },
+                    {
+                      "properties": {
+                        "buckets": {
+                          "type": "array",
+                          "items": {
+                            "allOf": [
+                              {
+                                "$ref": "#/components/schemas/PairBucket"
+                              },
+                              {
+                                "properties": {
+                                  "id": {
+                                    "type": "string",
+                                    "example": "0xdAC17F958D2ee523a2206206994597C13D831ec7-0x6B175474E89094C44Da98b954EedeAC495271d0F-min"
+                                  },
+                                  "index": {
+                                    "type": "number",
+                                    "example": 1
+                                  },
+                                  "base": {
+                                    "type": "string",
+                                    "example": "0xdAC17F958D2ee523a2206206994597C13D831ec7"
+                                  },
+                                  "quote": {
+                                    "type": "string",
+                                    "example": "0x6B175474E89094C44Da98b954EedeAC495271d0F"
+                                  },
+                                  "orderbook": {
+                                    "type": "string",
+                                    "example": "0xdAC17F958D2ee523a2206206994597C13D831ec7"
+                                  },
+                                  "open": {
+                                    "type": "number",
+                                    "example": 1
+                                  },
+                                  "high": {
+                                    "type": "number",
+                                    "example": 1
+                                  },
+                                  "low": {
+                                    "type": "number",
+                                    "example": 1
+                                  },
+                                  "close": {
+                                    "type": "number",
+                                    "example": 1
+                                  },
+                                  "average": {
+                                    "type": "number",
+                                    "example": 1
+                                  },
+                                  "baseVolume": {
+                                    "type": "number",
+                                    "example": 1
+                                  },
+                                  "quoteVolume": {
+                                    "type": "number",
+                                    "example": 1
+                                  },
+                                  "baseVolumeUSD": {
+                                    "type": "number",
+                                    "example": 1
+                                  },
+                                  "quoteVolumeUSD": {
+                                    "type": "number",
+                                    "example": 1
+                                  },
+                                  "baseTvl": {
+                                    "type": "number",
+                                    "example": 1
+                                  },
+                                  "quoteTvl": {
+                                    "type": "number",
+                                    "example": 1
+                                  },
+                                  "baseTvlUSD": {
+                                    "type": "number",
+                                    "example": 1
+                                  },
+                                  "quoteTvlUSD": {
+                                    "type": "number",
+                                    "example": 1
+                                  },
+                                  "count": {
+                                    "type": "number",
+                                    "example": 1
+                                  },
+                                  "timestamp": {
+                                    "type": "number",
+                                    "example": 1620000000
+                                  }
+                                },
+                                "required": [
+                                  "id",
+                                  "index",
+                                  "base",
+                                  "quote",
+                                  "orderbook",
+                                  "open",
+                                  "high",
+                                  "low",
+                                  "close",
+                                  "average",
+                                  "baseVolume",
+                                  "quoteVolume",
+                                  "baseVolumeUSD",
+                                  "quoteVolumeUSD",
+                                  "baseTvl",
+                                  "quoteTvl",
+                                  "baseTvlUSD",
+                                  "quoteTvlUSD",
+                                  "count",
+                                  "timestamp"
+                                ]
+                              }
+                            ]
+                          }
+                        },
+                        "totalCount": {
+                          "type": "number",
+                          "example": 1
+                        },
+                        "totalPages": {
+                          "type": "number",
+                          "example": 1
+                        },
+                        "pageSize": {
+                          "type": "number",
+                          "example": 1
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/ohlcv/{interval}/{base}/{quote}/before/{timestamp}/{pageSize}/{page}": {
+      "get": {
+        "summary": "Get OHLCV data before a timestamp",
+        "description": "Get minute, hour, day, week, or month OHLCV data with pagination before a timestamp",
+        "tags": ["OHLCV", "Pair"],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "enum": ["min", "hour", "day", "week", "month"],
+              "description": "Time interval of the OHLCV data",
+              "example": "hour"
+            },
+            "required": true,
+            "name": "interval",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "maxLength": 42,
+              "description": "Base token address",
+              "example": "0x008fCD6315c68EbAa31244aea174993f63Ef14D5"
+            },
+            "required": true,
+            "name": "base",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "maxLength": 42,
+              "description": "Quote token address",
+              "example": "0x1f18a1724D8960f10165788dba3123F3f5623BB9"
+            },
+            "required": true,
+            "name": "quote",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "Timestamp in seconds",
+              "example": "1620000000"
+            },
+            "required": false,
+            "name": "timestamp",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "Number of results per page",
+              "example": "100"
+            },
+            "required": true,
+            "name": "pageSize",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "Page number",
+              "example": "1"
+            },
+            "required": true,
+            "name": "page",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OHLCV data is retrieved",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/OhlcvResponse"
+                    },
+                    {
+                      "properties": {
+                        "buckets": {
+                          "type": "array",
+                          "items": {
+                            "allOf": [
+                              {
+                                "$ref": "#/components/schemas/PairBucket"
+                              },
+                              {
+                                "properties": {
+                                  "id": {
+                                    "type": "string",
+                                    "example": "0xdAC17F958D2ee523a2206206994597C13D831ec7-0x6B175474E89094C44Da98b954EedeAC495271d0F-min"
+                                  },
+                                  "index": {
+                                    "type": "number",
+                                    "example": 1
+                                  },
+                                  "base": {
+                                    "type": "string",
+                                    "example": "0xdAC17F958D2ee523a2206206994597C13D831ec7"
+                                  },
+                                  "quote": {
+                                    "type": "string",
+                                    "example": "0x6B175474E89094C44Da98b954EedeAC495271d0F"
+                                  },
+                                  "orderbook": {
+                                    "type": "string",
+                                    "example": "0xdAC17F958D2ee523a2206206994597C13D831ec7"
+                                  },
+                                  "open": {
+                                    "type": "number",
+                                    "example": 1
+                                  },
+                                  "high": {
+                                    "type": "number",
+                                    "example": 1
+                                  },
+                                  "low": {
+                                    "type": "number",
+                                    "example": 1
+                                  },
+                                  "close": {
+                                    "type": "number",
+                                    "example": 1
+                                  },
+                                  "average": {
+                                    "type": "number",
+                                    "example": 1
+                                  },
+                                  "baseVolume": {
+                                    "type": "number",
+                                    "example": 1
+                                  },
+                                  "quoteVolume": {
+                                    "type": "number",
+                                    "example": 1
+                                  },
+                                  "baseVolumeUSD": {
+                                    "type": "number",
+                                    "example": 1
+                                  },
+                                  "quoteVolumeUSD": {
+                                    "type": "number",
+                                    "example": 1
+                                  },
+                                  "baseTvl": {
+                                    "type": "number",
+                                    "example": 1
+                                  },
+                                  "quoteTvl": {
+                                    "type": "number",
+                                    "example": 1
+                                  },
+                                  "baseTvlUSD": {
+                                    "type": "number",
+                                    "example": 1
+                                  },
+                                  "quoteTvlUSD": {
+                                    "type": "number",
+                                    "example": 1
+                                  },
+                                  "count": {
+                                    "type": "number",
+                                    "example": 1
+                                  },
+                                  "timestamp": {
+                                    "type": "number",
+                                    "example": 1620000000
+                                  }
+                                },
+                                "required": [
+                                  "id",
+                                  "index",
+                                  "base",
+                                  "quote",
+                                  "orderbook",
+                                  "open",
+                                  "high",
+                                  "low",
+                                  "close",
+                                  "average",
+                                  "baseVolume",
+                                  "quoteVolume",
+                                  "baseVolumeUSD",
+                                  "quoteVolumeUSD",
+                                  "baseTvl",
+                                  "quoteTvl",
+                                  "baseTvlUSD",
+                                  "quoteTvlUSD",
+                                  "count",
+                                  "timestamp"
+                                ]
+                              }
+                            ]
+                          }
+                        },
+                        "totalCount": {
+                          "type": "number",
+                          "example": 1
+                        },
+                        "totalPages": {
+                          "type": "number",
+                          "example": 1
+                        },
+                        "pageSize": {
+                          "type": "number",
+                          "example": 1
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/ohlcv/{interval}/{base}/{quote}/after/{timestamp}/{pageSize}/{page}": {
+      "get": {
+        "summary": "Get OHLCV data after a timestamp",
+        "description": "Get minute, hour, day, week, or month OHLCV data with pagination after a timestamp",
+        "tags": ["OHLCV", "Pair"],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "enum": ["min", "hour", "day", "week", "month"],
+              "description": "Time interval of the OHLCV data",
+              "example": "hour"
+            },
+            "required": true,
+            "name": "interval",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "maxLength": 42,
+              "description": "Base token address",
+              "example": "0x008fCD6315c68EbAa31244aea174993f63Ef14D5"
+            },
+            "required": true,
+            "name": "base",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "maxLength": 42,
+              "description": "Quote token address",
+              "example": "0x1f18a1724D8960f10165788dba3123F3f5623BB9"
+            },
+            "required": true,
+            "name": "quote",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "Timestamp in seconds",
+              "example": "1620000000"
+            },
+            "required": false,
+            "name": "timestamp",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "Number of results per page",
+              "example": "100"
+            },
+            "required": true,
+            "name": "pageSize",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "Page number",
+              "example": "1"
+            },
+            "required": true,
+            "name": "page",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OHLCV data is retrieved",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/OhlcvResponse"
+                    },
+                    {
+                      "properties": {
+                        "buckets": {
+                          "type": "array",
+                          "items": {
+                            "allOf": [
+                              {
+                                "$ref": "#/components/schemas/PairBucket"
+                              },
+                              {
+                                "properties": {
+                                  "id": {
+                                    "type": "string",
+                                    "example": "0xdAC17F958D2ee523a2206206994597C13D831ec7-0x6B175474E89094C44Da98b954EedeAC495271d0F-min"
+                                  },
+                                  "index": {
+                                    "type": "number",
+                                    "example": 1
+                                  },
+                                  "base": {
+                                    "type": "string",
+                                    "example": "0xdAC17F958D2ee523a2206206994597C13D831ec7"
+                                  },
+                                  "quote": {
+                                    "type": "string",
+                                    "example": "0x6B175474E89094C44Da98b954EedeAC495271d0F"
+                                  },
+                                  "orderbook": {
+                                    "type": "string",
+                                    "example": "0xdAC17F958D2ee523a2206206994597C13D831ec7"
+                                  },
+                                  "open": {
+                                    "type": "number",
+                                    "example": 1
+                                  },
+                                  "high": {
+                                    "type": "number",
+                                    "example": 1
+                                  },
+                                  "low": {
+                                    "type": "number",
+                                    "example": 1
+                                  },
+                                  "close": {
+                                    "type": "number",
+                                    "example": 1
+                                  },
+                                  "average": {
+                                    "type": "number",
+                                    "example": 1
+                                  },
+                                  "baseVolume": {
+                                    "type": "number",
+                                    "example": 1
+                                  },
+                                  "quoteVolume": {
+                                    "type": "number",
+                                    "example": 1
+                                  },
+                                  "baseVolumeUSD": {
+                                    "type": "number",
+                                    "example": 1
+                                  },
+                                  "quoteVolumeUSD": {
+                                    "type": "number",
+                                    "example": 1
+                                  },
+                                  "baseTvl": {
+                                    "type": "number",
+                                    "example": 1
+                                  },
+                                  "quoteTvl": {
+                                    "type": "number",
+                                    "example": 1
+                                  },
+                                  "baseTvlUSD": {
+                                    "type": "number",
+                                    "example": 1
+                                  },
+                                  "quoteTvlUSD": {
+                                    "type": "number",
+                                    "example": 1
+                                  },
+                                  "count": {
+                                    "type": "number",
+                                    "example": 1
+                                  },
+                                  "timestamp": {
+                                    "type": "number",
+                                    "example": 1620000000
+                                  }
+                                },
+                                "required": [
+                                  "id",
+                                  "index",
+                                  "base",
+                                  "quote",
+                                  "orderbook",
+                                  "open",
+                                  "high",
+                                  "low",
+                                  "close",
+                                  "average",
+                                  "baseVolume",
+                                  "quoteVolume",
+                                  "baseVolumeUSD",
+                                  "quoteVolumeUSD",
+                                  "baseTvl",
+                                  "quoteTvl",
+                                  "baseTvlUSD",
+                                  "quoteTvlUSD",
+                                  "count",
+                                  "timestamp"
+                                ]
+                              }
+                            ]
+                          }
+                        },
+                        "totalCount": {
+                          "type": "number",
+                          "example": 1
+                        },
+                        "totalPages": {
+                          "type": "number",
+                          "example": 1
+                        },
+                        "pageSize": {
+                          "type": "number",
+                          "example": 1
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/tradingview/config": {
+      "get": {
+        "summary": "Data Feed Configuration Data",
+        "description": "Request for config data.",
+        "tags": ["TradingView"],
+        "responses": {
+          "200": {
+            "description": "TradingView datafeed configuration data is retrieved",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TradingViewConfigResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/tradingview/history": {
+      "get": {
+        "summary": "History",
+        "description": "Request for history bars. Each property of the response object is treated as a table column. \n\nData follows these requirements:\n\n- real-time data obtained from the API streaming endpoint must match the historical data, obtained from the /history API. The allowed count of mismatched bars (candles) must not exceed 5% for frequently traded symbols, otherwise the integration to TradingView is not possible;\n- the data must not include unreasonable price gaps, historical data gaps on 1-minute and Daily-resolutions (temporal gaps), obviously incorrect prices (adhesions).\n\nIf there is no data in the requested time period, endpoint returns an empty response: `{\"s\":\"ok\",\"t\":[],\"o\":[],\"h\":[],\"l\":[],\"c\":[],\"v\":[]}`",
+        "tags": ["TradingView"],
+        "validation": {
+          "query": {
+            "_def": {
+              "unknownKeys": "strip",
+              "catchall": {
+                "_def": {
+                  "typeName": "ZodNever"
+                },
+                "~standard": {
+                  "version": 1,
+                  "vendor": "zod"
+                }
+              },
+              "typeName": "ZodObject"
+            },
+            "~standard": {
+              "version": 1,
+              "vendor": "zod"
+            },
+            "_cached": {
+              "shape": {
+                "symbol": {
+                  "_def": {
+                    "checks": [],
+                    "typeName": "ZodString",
+                    "coerce": false,
+                    "openapi": {
+                      "metadata": {
+                        "example": "WBTC/USDC",
+                        "description": "Symbol name or ticker. This is case-insensitive.",
+                        "param": {
+                          "name": "symbol",
+                          "in": "query",
+                          "required": true
+                        }
+                      }
+                    }
+                  },
+                  "~standard": {
+                    "version": 1,
+                    "vendor": "zod"
+                  }
+                },
+                "resolution": {
+                  "_def": {
+                    "values": [
+                      "1",
+                      "2",
+                      "5",
+                      "15",
+                      "30",
+                      "60",
+                      "120",
+                      "240",
+                      "360",
+                      "720",
+                      "D",
+                      "1D",
+                      "W",
+                      "1W",
+                      "M",
+                      "1M"
+                    ],
+                    "typeName": "ZodEnum",
+                    "openapi": {
+                      "metadata": {
+                        "example": "1",
+                        "description": "Symbol resolution. Possible resolutions are 1, 2, 5, 15, 30, 60, 120, 240, 360, 720, D, 1D, W, 1W, M, 1M. D, W, M are aliases for 1D, 1W, 1M correspondingly. D and 1D mean the same and equal to 1 day. 1W means 1 week. 1M means 1 month.",
+                        "param": {
+                          "name": "resolution",
+                          "in": "query",
+                          "required": true
+                        }
+                      }
+                    }
+                  },
+                  "~standard": {
+                    "version": 1,
+                    "vendor": "zod"
+                  },
+                  "_cache": {}
+                },
+                "from": {
+                  "_def": {
+                    "checks": [],
+                    "typeName": "ZodString",
+                    "coerce": false,
+                    "openapi": {
+                      "metadata": {
+                        "example": "1684137600",
+                        "description": "Unix timestamp (UTC) of the leftmost required bar, including from.",
+                        "param": {
+                          "name": "from",
+                          "in": "query",
+                          "required": true
+                        }
+                      }
+                    }
+                  },
+                  "~standard": {
+                    "version": 1,
+                    "vendor": "zod"
+                  }
+                },
+                "to": {
+                  "_def": {
+                    "checks": [],
+                    "typeName": "ZodString",
+                    "coerce": false,
+                    "openapi": {
+                      "metadata": {
+                        "example": "1684141200",
+                        "description": "Unix timestamp (UTC) of the rightmost required bar, including to. It can be in the future. In this case, the rightmost required bar is the latest available bar.",
+                        "param": {
+                          "name": "to",
+                          "in": "query",
+                          "required": true
+                        }
+                      }
+                    }
+                  },
+                  "~standard": {
+                    "version": 1,
+                    "vendor": "zod"
+                  }
+                }
+              },
+              "keys": ["symbol", "resolution", "from", "to"]
+            }
+          }
+        },
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "description": "Symbol name or ticker. This is case-insensitive.",
+              "example": "WBTC/USDC"
+            },
+            "required": true,
+            "name": "symbol",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "enum": [
+                "1",
+                "2",
+                "5",
+                "15",
+                "30",
+                "60",
+                "120",
+                "240",
+                "360",
+                "720",
+                "D",
+                "1D",
+                "W",
+                "1W",
+                "M",
+                "1M"
+              ],
+              "description": "Symbol resolution. Possible resolutions are 1, 2, 5, 15, 30, 60, 120, 240, 360, 720, D, 1D, W, 1W, M, 1M. D, W, M are aliases for 1D, 1W, 1M correspondingly. D and 1D mean the same and equal to 1 day. 1W means 1 week. 1M means 1 month.",
+              "example": "1"
+            },
+            "required": true,
+            "name": "resolution",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "Unix timestamp (UTC) of the leftmost required bar, including from.",
+              "example": "1684137600"
+            },
+            "required": true,
+            "name": "from",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "Unix timestamp (UTC) of the rightmost required bar, including to. It can be in the future. In this case, the rightmost required bar is the latest available bar.",
+              "example": "1684141200"
+            },
+            "required": true,
+            "name": "to",
+            "in": "query"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "TradingView history data is retrieved",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HistorySuccessResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "TradingView history data is not retrieved with error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TradingViewErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/tradingview/groups": {
+      "get": {
+        "summary": "Groups",
+        "description": "Show all groups to be displayed in Tradingview in Standard",
+        "tags": ["TradingView"],
+        "responses": {
+          "200": {
+            "description": "TradingView groups data is retrieved",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TradingViewGroupsResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/tradingview/streaming": {
+      "get": {
+        "summary": "Streaming",
+        "description": "Request for streaming data. `f` is always \"t\" and `s` is always 0.",
+        "tags": ["TradingView"],
+        "responses": {
+          "200": {
+            "description": "streaming data is retrieved",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TradingViewStreamingResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/tradingview/symbol_info": {
+      "get": {
+        "summary": "Symbol Info",
+        "description": "Get a list of all instruments.",
+        "tags": ["TradingView"],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "description": "ID of a symbol group. If it is present then only symbols that belong to this group should be returned. Possible values are provided by the /groups endpoint.",
+              "example": "stnd_ip"
+            },
+            "required": true,
+            "name": "group",
+            "in": "query"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "TradingView history data is retrieved",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TradingViewSymbolInfoResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "TradingView history data is not retrieved with error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TradingViewErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/tradingview/search": {
+      "get": {
+        "summary": "Symbol Search",
+        "description": "Request for symbol search data.",
+        "tags": ["TradingView"],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "description": "Text typed by the user in the Symbol Search edit box.",
+              "example": "WBTC/USDC"
+            },
+            "required": true,
+            "name": "query",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "Type of the requested symbol. If no type is provided, all types should be returned. Possible values are provided by the /groups endpoint.",
+              "example": "spot"
+            },
+            "required": false,
+            "name": "type",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "default": "Standard",
+              "description": "Exchange name of the requested symbol. Default value is PYTH.",
+              "example": "Standard"
+            },
+            "required": false,
+            "name": "exchange",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "default": "15",
+              "description": "The maximum number of symbols in a response. Default value is 15.",
+              "example": "15"
+            },
+            "required": false,
+            "name": "limit",
+            "in": "query"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "TradingView symbol search data is retrieved",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TradingViewSymbolSearchResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "TradingView symbol search data is not retrieved with error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TradingViewErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/tradingview/symbols": {
+      "get": {
+        "summary": "Symbol Resolution",
+        "description": "Request for symbol resolution data.",
+        "tags": ["TradingView"],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "description": "Symbol name or ticker. This is case-insensitive.",
+              "example": "WBTC/USDC"
+            },
+            "required": true,
+            "name": "symbol",
+            "in": "query"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "TradingView history data is retrieved",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TradingViewSymbolsResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "TradingView history data is not retrieved with error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TradingViewErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/tickers": {
+      "get": {
+        "summary": "Get Tickers",
+        "description": "Get Market related statistics for all markets for the last 24 hours",
+        "tags": ["Coingecko"],
+        "responses": {
+          "200": {
+            "description": "tickers are retrieved",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CoingeckoTickersResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/orderbook": {
+      "get": {
+        "summary": "Get Orderbook data",
+        "description": "Get Order book depth of any given trading pair, split into two different arrays for bid and ask orders",
+        "tags": ["Coingecko"],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "description": "A ticker such as \"BTC_ETH\", with delimiter between different cryptoassets",
+              "example": "0x55d398326f99059ff775485246999027b3197955_0xbb4cdb9cbd36b01bd1cbaebf2de08d9173bc095c"
+            },
+            "required": true,
+            "name": "ticker_id",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "number",
+              "description": "Orders depth quantity: [0, 100, 200, 500...]. 0 returns full depth. Depth = 100 means 50 for each bid/ask side. Note that for more liquid or closely priced pairs, the lack of order depth may result in miscalculation of depth/spread.",
+              "example": 100
+            },
+            "required": false,
+            "name": "depth",
+            "in": "query"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "orderbook data is retrieved",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CoingeckoOrderbookResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/historical_trades": {
+      "get": {
+        "summary": "Get Historical Trade data",
+        "description": "Get Historical trade data for any given trading pair",
+        "tags": ["Coingecko"],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "description": "A pair such as \"BTC_ETH\", with delimiter between different cryptoassets",
+              "example": "0x55d398326f99059ff775485246999027b3197955_0xbb4cdb9cbd36b01bd1cbaebf2de08d9173bc095c"
+            },
+            "required": true,
+            "name": "ticker_id",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "To indicate nature of trade - buy/sell",
+              "example": "buy"
+            },
+            "required": false,
+            "name": "type",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "number",
+              "description": "Number of historical trades to retrieve from time of query. [0, 200, 500...]. 0 returns full history.",
+              "example": 200
+            },
+            "required": false,
+            "name": "limit",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "Start time from which to query historical trades from",
+              "example": "2024-01-01T00:00:00Z"
+            },
+            "required": false,
+            "name": "start_time",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "End time for historical trades query",
+              "example": "2024-01-31T23:59:59Z"
+            },
+            "required": false,
+            "name": "end_time",
+            "in": "query"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "historical trade data is retrieved",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CoingeckoHistoricalResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/websocket/saturated": {
+      "get": {
+        "summary": "Websocket",
+        "description": "Check if the websocket connection is saturated within the server",
+        "tags": ["Websocket"],
+        "responses": {
+          "200": {
+            "description": "Websocket saturated data is retrieved",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "saturated": {
+                      "type": "boolean"
+                    },
+                    "totalConnectedClients": {
+                      "type": "number"
+                    }
+                  },
+                  "required": ["saturated", "totalConnectedClients"]
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
