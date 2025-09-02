@@ -5,17 +5,24 @@ from typing import Dict, List
 
 from hummingbot.core.api_throttler.data_types import RateLimit
 
+# Load environment variables from .env file
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass  # python-dotenv not installed, skip
+
 # Exchange information
 EXCHANGE_NAME = "standard"
-# Force domain to mainnet
-DEFAULT_DOMAIN = "mainnet"  # Changed from os.getenv("SOMNIA_DOMAIN", "testnet") to force mainnet
+# Get domain from .env file with fallback to mainnet
+DEFAULT_DOMAIN = os.getenv("SOMNIA_DOMAIN", "mainnet")
 
 # Domain-specific configurations
 DOMAIN_CONFIG = {
     "mainnet": {
         "chain_id": 5031,  # Somnia mainnet chain ID
         "rpc_url": "https://api.infra.mainnet.somnia.network",
-        "api_url": "https://somnia-mainnet-ponder-release.standardweb3.com/",  # Base URL for API calls
+        "api_url": "https://api-somi.standardweb3.com/",  # Base URL for API calls
         "websocket_url": "wss://ws3-somnia-mainnet-ponder-release.standardweb3.com",  # Ponder websocket
         "standard_exchange_address": "0x3Cb2CBb0CeB96c9456b11DbC7ab73c4848F9a14c",  # Mainnet exchange address
         "standard_websocket_url": "https://ws1-somnia-mainnet-websocket-release.standardweb3.com/",  # Standard websocket
@@ -124,11 +131,11 @@ DEFAULT_TOKENS = DEFAULT_TOKENS_PER_DOMAIN[DEFAULT_DOMAIN]
 # Token address mappings per domain
 TOKEN_ADDRESSES_PER_DOMAIN = {
     "mainnet": {
-        "SOMI": "0x0000000000000000000000000000000000000000",  # Native token for Somnia mainnet
+        "SOMI": "0x046ede9564a72571df6f5e44d0405360c0f4dcab",  # Native token for Somnia mainnet
         "USDC": "0x28BEc7E30E6faee657a03e19Bf1128AaD7632A00",  # Mainnet USDC token address
     },
     "testnet": {
-        "STT": "0x0000000000000000000000000000000000000000",  # Native token for Somnia testnet
+        "STT": "0x4A3BC48C156384f9564Fd65A53a2f3D534D8f2b7",  # Native token for Somnia testnet
         "USDC": "0x0ED782B8079529f7385c3eDA9fAf1EaA0DbC6a17",  # Testnet USDC token address
         "WBTC": "0x54597df4E4A6385B77F39d458Eb75443A8f9Aa9e",
         "SOL": "0x...",  # To be added when SOL testnet address is available
