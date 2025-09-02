@@ -1026,6 +1026,233 @@ class StandardExchange(ExchangePyBase):
             self._last_nonce += 1
             return self._last_nonce
 
+    async def _ensure_token_allowances(self, base_address: str, quote_address: str, amount: Decimal, price: Decimal, is_buy: bool):
+        """
+        Ensure sufficient token allowances before placing orders.
+        
+        Args:
+            base_address: Base token address
+            quote_address: Quote token address 
+            amount: Order amount
+            price: Order price
+            is_buy: Whether this is a buy order
+        """
+        try:
+            from web3 import Web3
+            
+            # Create Web3 instance
+            rpc_url = CONSTANTS.DOMAIN_CONFIG[self._domain]["rpc_url"]
+            w3 = Web3(Web3.HTTPProvider(rpc_url))
+            
+            if not w3.is_connected():
+                self.logger().warning("Failed to connect to RPC for allowance check")
+                return
+            
+            # Standard ERC-20 allowance ABI
+            erc20_abi = [
+                {
+                    "constant": True,
+                    "inputs": [
+                        {"name": "_owner", "type": "address"},
+                        {"name": "_spender", "type": "address"}
+                    ],
+                    "name": "allowance",
+                    "outputs": [{"name": "", "type": "uint256"}],
+                    "type": "function"
+                },
+                {
+                    "constant": False,
+                    "inputs": [
+                        {"name": "_spender", "type": "address"},
+                        {"name": "_value", "type": "uint256"}
+                    ],
+                    "name": "approve",
+                    "outputs": [{"name": "", "type": "bool"}],
+                    "type": "function"
+                }
+            ]
+            
+            exchange_address = CONSTANTS.DOMAIN_CONFIG[self._domain]["standard_exchange_address"]
+            wallet_address = w3.to_checksum_address(self._wallet_address)
+            exchange_checksum = w3.to_checksum_address(exchange_address)
+            
+            if is_buy:
+                # For buy orders, need allowance for quote token (USDC)
+                token_address = quote_address
+                quote_decimals = utils.get_token_decimals(utils.convert_address_to_symbol(quote_address, self._domain))
+                required_amount = int((amount * price) * (10 ** quote_decimals))
+                token_symbol = utils.convert_address_to_symbol(quote_address, self._domain)
+            else:
+                # For sell orders, need allowance for base token (SOMI)
+                token_address = base_address
+                base_decimals = utils.get_token_decimals(utils.convert_address_to_symbol(base_address, self._domain))
+                required_amount = int(amount * (10 ** base_decimals))
+                token_symbol = utils.convert_address_to_symbol(base_address, self._domain)
+            
+            # Skip allowance check for native tokens
+            if token_address == "0x0000000000000000000000000000000000000000":
+                self.logger().info(f"Skipping allowance check for native token {token_symbol}")
+                return
+            
+            # Create contract instance
+            contract = w3.eth.contract(
+                address=w3.to_checksum_address(token_address),
+                abi=erc20_abi
+            )
+            
+            # Check current allowance
+            current_allowance = contract.functions.allowance(wallet_address, exchange_checksum).call()
+            
+            self.logger().info(f"Token allowance check for {token_symbol}: current={current_allowance}, required={required_amount}")
+            
+            if current_allowance < required_amount:
+                self.logger().info(f"Insufficient allowance for {token_symbol}. Approving {required_amount}...")
+                
+                # Use direct Web3 contract call to approve tokens
+                if not self._private_key:
+                    raise ValueError("Wallet private key not available for token approval")
+                
+                # Approve a large amount to avoid frequent approvals (e.g., max uint256)
+                max_approval = 2**256 - 1  # Max uint256
+                
+                self.logger().info(f"Approving {token_symbol} with amount: {max_approval}")
+                
+                # Build the approval transaction
+                approve_function = contract.functions.approve(exchange_checksum, max_approval)
+                
+                # Get gas estimate
+                try:
+                    gas_estimate = approve_function.estimate_gas({'from': wallet_address})
+                    gas_limit = int(gas_estimate * 1.2)  # Add 20% buffer
+                except Exception as e:
+                    self.logger().warning(f"Could not estimate gas for approval: {e}, using default")
+                    gas_limit = 100000  # Default gas limit for ERC20 approval
+                
+                # Get current nonce
+                nonce = w3.eth.get_transaction_count(wallet_address, 'pending')
+                
+                # Build transaction
+                transaction = approve_function.build_transaction({
+                    'from': wallet_address,
+                    'gas': gas_limit,
+                    'gasPrice': w3.eth.gas_price,
+                    'nonce': nonce,
+                })
+                
+                # Sign transaction
+                from eth_account import Account
+                signed_txn = Account.sign_transaction(transaction, self._private_key)
+                
+                # Send transaction
+                tx_hash = w3.eth.send_raw_transaction(signed_txn.raw_transaction)
+                tx_hash_hex = tx_hash.hex()
+                
+                self.logger().info(f"Approval transaction submitted: {tx_hash_hex}")
+                
+                # Wait for transaction confirmation
+                import asyncio
+                receipt = None
+                for i in range(30):  # Wait up to 30 seconds
+                    try:
+                        receipt = w3.eth.get_transaction_receipt(tx_hash)
+                        if receipt:
+                            break
+                    except:
+                        pass
+                    await asyncio.sleep(1)
+                
+                if receipt and receipt.status == 1:
+                    self.logger().info(f"Approval transaction confirmed: {tx_hash_hex}")
+                    
+                    # Check the new allowance
+                    new_allowance = contract.functions.allowance(wallet_address, exchange_checksum).call()
+                    self.logger().info(f"New allowance for {token_symbol}: {new_allowance}")
+                    
+                    if new_allowance < required_amount:
+                        raise ValueError(f"Approval failed - still insufficient allowance for {token_symbol}")
+                else:
+                    raise ValueError(f"Approval transaction failed or not confirmed: {tx_hash_hex}")
+            else:
+                self.logger().info(f"Sufficient allowance for {token_symbol}: {current_allowance} >= {required_amount}")
+                
+        except Exception as e:
+            self.logger().error(f"Error checking/ensuring token allowances: {e}")
+            raise
+
+    async def _check_sufficient_balance(self, base_address: str, quote_address: str, amount: Decimal, price: Decimal, is_buy: bool):
+        """
+        Check if wallet has sufficient token balance before placing orders.
+        
+        Args:
+            base_address: Base token address
+            quote_address: Quote token address 
+            amount: Order amount
+            price: Order price
+            is_buy: Whether this is a buy order
+        """
+        try:
+            from web3 import Web3
+            
+            # Create Web3 instance
+            rpc_url = CONSTANTS.DOMAIN_CONFIG[self._domain]["rpc_url"]
+            w3 = Web3(Web3.HTTPProvider(rpc_url))
+            
+            if not w3.is_connected():
+                self.logger().warning("Failed to connect to RPC for balance check")
+                return
+            
+            # Standard ERC-20 balance ABI
+            erc20_abi = [
+                {
+                    "constant": True,
+                    "inputs": [{"name": "_owner", "type": "address"}],
+                    "name": "balanceOf",
+                    "outputs": [{"name": "balance", "type": "uint256"}],
+                    "type": "function"
+                }
+            ]
+            
+            wallet_address = w3.to_checksum_address(self._wallet_address)
+            
+            if is_buy:
+                # For buy orders, need sufficient quote token (USDC) balance
+                token_address = quote_address
+                quote_decimals = utils.get_token_decimals(utils.convert_address_to_symbol(quote_address, self._domain))
+                required_amount = int((amount * price) * (10 ** quote_decimals))
+                token_symbol = utils.convert_address_to_symbol(quote_address, self._domain)
+            else:
+                # For sell orders, need sufficient base token (SOMI) balance
+                token_address = base_address
+                base_decimals = utils.get_token_decimals(utils.convert_address_to_symbol(base_address, self._domain))
+                required_amount = int(amount * (10 ** base_decimals))
+                token_symbol = utils.convert_address_to_symbol(base_address, self._domain)
+            
+            # Check balance for native tokens (ETH/SOMNIA)
+            if token_address == "0x0000000000000000000000000000000000000000":
+                current_balance = w3.eth.get_balance(wallet_address)
+                self.logger().info(f"Native token balance check for {token_symbol}: current={current_balance}, required={required_amount}")
+            else:
+                # Check ERC-20 token balance
+                contract = w3.eth.contract(
+                    address=w3.to_checksum_address(token_address),
+                    abi=erc20_abi
+                )
+                current_balance = contract.functions.balanceOf(wallet_address).call()
+                self.logger().info(f"Token balance check for {token_symbol}: current={current_balance}, required={required_amount}")
+            
+            if current_balance < required_amount:
+                readable_balance = current_balance / (10 ** (utils.get_token_decimals(token_symbol) if token_symbol != "ETH" else 18))
+                readable_required = required_amount / (10 ** (utils.get_token_decimals(token_symbol) if token_symbol != "ETH" else 18))
+                raise ValueError(f"Insufficient {token_symbol} balance. Have: {readable_balance:.6f}, Need: {readable_required:.6f}")
+            else:
+                readable_balance = current_balance / (10 ** (utils.get_token_decimals(token_symbol) if token_symbol != "ETH" else 18))
+                readable_required = required_amount / (10 ** (utils.get_token_decimals(token_symbol) if token_symbol != "ETH" else 18))
+                self.logger().info(f"Sufficient {token_symbol} balance: {readable_balance:.6f} >= {readable_required:.6f}")
+                
+        except Exception as e:
+            self.logger().error(f"Error checking token balance: {e}")
+            raise
+
     async def _place_order(self,
                           order_id: str,
                           trading_pair: str,
@@ -1057,12 +1284,18 @@ class StandardExchange(ExchangePyBase):
             if not base_address or not quote_address:
                 raise ValueError(f"Could not get token addresses for {trading_pair}")
             
+            # Determine if this is a buy order
+            is_buy = trade_type == TradeType.BUY
+            
             # Convert amounts to blockchain format
             base_decimals = utils.get_token_decimals(base)
             quote_decimals = utils.get_token_decimals(quote)
             
-            # Prepare order parameters for StandardClient
-            is_buy = trade_type == TradeType.BUY
+            # Check and ensure token allowances before placing order
+            await self._ensure_token_allowances(base_address, quote_address, amount, price, is_buy)
+            
+            # Check token balances before placing order
+            await self._check_sufficient_balance(base_address, quote_address, amount, price, is_buy)
             
             if order_type == OrderType.MARKET:
                 # For market orders, we'll place a limit order at a price that should execute immediately
@@ -1080,30 +1313,59 @@ class StandardExchange(ExchangePyBase):
                 # Get current nonce for the account to avoid "nonce too low" errors
                 current_nonce = await self._get_current_nonce()
                 
-                # Use StandardClient to place the order - convert symbols to addresses
-                if is_buy:
-                    # For buy orders: quote_amount = amount * price
-                    quote_amount = amount * execution_price
-                    tx_hash = await self._standard_client.limit_buy(
-                        base=base_address,  # Use token address, not symbol
-                        quote=quote_address,  # Use token address, not symbol
-                        price=float(execution_price),
-                        quote_amount=float(quote_amount),
-                        is_maker=True,  # Default to maker order
-                        n=current_nonce,  # Use dynamic nonce
-                        recipient=self._wallet_address
-                    )
-                else:
-                    # For sell orders: base_amount = amount
-                    tx_hash = await self._standard_client.limit_sell(
-                        base=base_address,  # Use token address, not symbol
-                        quote=quote_address,  # Use token address, not symbol
-                        price=float(execution_price),
-                        base_amount=float(amount),
-                        is_maker=True,  # Default to maker order
-                        n=current_nonce,  # Use dynamic nonce
-                        recipient=self._wallet_address
-                    )
+                # Comment out StandardClient to use direct on-chain contract calls
+                # DIRECT ON-CHAIN CONTRACT CALL APPROACH
+                tx_hash = await self._place_order_direct_contract(
+                    base_address=base_address,
+                    quote_address=quote_address,
+                    amount=amount,
+                    execution_price=execution_price,
+                    is_buy=is_buy,
+                    base_decimals=base_decimals,
+                    quote_decimals=quote_decimals,
+                    current_nonce=current_nonce
+                )
+                
+                # COMMENTED OUT: StandardClient approach (causing OUT_OF_GAS errors)
+                # if is_buy:
+                #     # For buy orders: quote_amount = amount * price
+                #     quote_amount = amount * execution_price
+                #     # Convert amounts to wei format (integer) for blockchain
+                #     quote_amount_wei = int(quote_amount * (10 ** quote_decimals))
+                #     price_wei = int(execution_price * (10 ** quote_decimals))  # Price in wei per token
+                #     
+                #     self.logger().info(f"DEBUG: Placing BUY order - base: {base_address}, quote: {quote_address}")
+                #     self.logger().info(f"DEBUG: Original values - price: {execution_price}, quote_amount: {quote_amount}")
+                #     self.logger().info(f"DEBUG: Wei values - price_wei: {price_wei}, quote_amount_wei: {quote_amount_wei}, nonce: {current_nonce}")
+                #     
+                #     tx_hash = await self._standard_client.limit_buy(
+                #         base=base_address,  # Use token address, not symbol
+                #         quote=quote_address,  # Use token address, not symbol
+                #         price=price_wei,
+                #         quote_amount=quote_amount_wei,
+                #         is_maker=True,  # Default to maker order
+                #         n=current_nonce,  # Use dynamic nonce
+                #         recipient=self._wallet_address
+                #     )
+                # else:
+                #     # For sell orders: base_amount = amount
+                #     # Convert amounts to wei format (integer) for blockchain
+                #     base_amount_wei = int(amount * (10 ** base_decimals))
+                #     price_wei = int(execution_price * (10 ** quote_decimals))  # Price in wei per token
+                #     
+                #     self.logger().info(f"DEBUG: Placing SELL order - base: {base_address}, quote: {quote_address}")
+                #     self.logger().info(f"DEBUG: Original values - price: {execution_price}, base_amount: {amount}")
+                #     self.logger().info(f"DEBUG: Wei values - price_wei: {price_wei}, base_amount_wei: {base_amount_wei}, nonce: {current_nonce}")
+                #     
+                #     tx_hash = await self._standard_client.limit_sell(
+                #         base=base_address,  # Use token address, not symbol
+                #         quote=quote_address,  # Use token address, not symbol
+                #         price=price_wei,
+                #         base_amount=base_amount_wei,
+                #         is_maker=True,  # Default to maker order
+                #         n=current_nonce,  # Use dynamic nonce
+                #         recipient=self._wallet_address
+                #     )
             
             # Store order ID mapping for cancellation
             self._order_id_map[order_id] = {
@@ -1113,14 +1375,212 @@ class StandardExchange(ExchangePyBase):
                 'is_bid': is_buy
             }
             
+            # Check transaction status if tx_hash contains receipt information
+            if isinstance(tx_hash, dict) and 'status' in tx_hash:
+                tx_status = tx_hash.get('status', 0)
+                tx_hash_value = tx_hash.get('transactionHash', tx_hash)
+                
+                if tx_status == 0:
+                    # Transaction failed on blockchain
+                    self.logger().error(f"Transaction failed on blockchain for order {order_id}: {tx_hash_value}")
+                    self.logger().error(f"Transaction receipt: {tx_hash}")
+                    raise ValueError(f"Blockchain transaction failed with status 0 for order {order_id}")
+                else:
+                    # Transaction succeeded
+                    self.logger().info(f"Order placed successfully: {order_id} -> {tx_hash_value} (blockchain_order_id: {current_nonce})")
+                    tx_hash = tx_hash_value  # Use just the hash for return value
+            else:
+                # tx_hash is just a string hash
+                self.logger().info(f"Order placed successfully: {order_id} -> {tx_hash} (blockchain_order_id: {current_nonce})")
+            
             # Return transaction hash as exchange order ID
             timestamp = time.time()
-            self.logger().info(f"Order placed successfully: {order_id} -> {tx_hash} (blockchain_order_id: {current_nonce})")
             
             return tx_hash, timestamp
             
         except Exception as e:
             self.logger().error(f"Error placing order {order_id}: {e}")
+            raise
+
+    async def _place_order_direct_contract(self,
+                                          base_address: str,
+                                          quote_address: str,
+                                          amount: Decimal,
+                                          execution_price: Decimal,
+                                          is_buy: bool,
+                                          base_decimals: int,
+                                          quote_decimals: int,
+                                          current_nonce: int) -> str:
+        """
+        Place order directly on the smart contract without using StandardWeb3.
+        
+        Args:
+            base_address: Base token contract address
+            quote_address: Quote token contract address
+            amount: Order amount
+            execution_price: Order execution price
+            is_buy: Whether this is a buy order
+            base_decimals: Base token decimals
+            quote_decimals: Quote token decimals
+            current_nonce: Transaction nonce
+            
+        Returns:
+            Transaction hash
+        """
+        try:
+            from web3 import Web3
+            from eth_account import Account
+            
+            # Create Web3 instance
+            rpc_url = CONSTANTS.DOMAIN_CONFIG[self._domain]["rpc_url"]
+            w3 = Web3(Web3.HTTPProvider(rpc_url))
+            
+            if not w3.is_connected():
+                raise ValueError("Failed to connect to RPC for order placement")
+            
+            # Get exchange contract address
+            exchange_address = CONSTANTS.DOMAIN_CONFIG[self._domain]["standard_exchange_address"]
+            exchange_checksum = w3.to_checksum_address(exchange_address)
+            wallet_address = w3.to_checksum_address(self._wallet_address)
+            
+            # Based on the transaction trace, the limitBuy function signature is:
+            # limitBuy(address base, address quote, uint256 price, uint256 quoteAmount, bool isMaker, uint256 n, address recipient)
+            # Function selector: 0x89556190
+            
+            if is_buy:
+                # For buy orders: quote_amount = amount * price
+                quote_amount = amount * execution_price
+                quote_amount_wei = int(quote_amount * (10 ** quote_decimals))
+                price_wei = int(execution_price * (10 ** quote_decimals))
+                
+                # Build limitBuy function call data
+                # limitBuy(address,address,uint256,uint256,bool,uint256,address)
+                function_selector = "0x89556190"
+                
+                # Encode parameters according to ABI
+                encoded_params = w3.codec.encode(
+                    ['address', 'address', 'uint256', 'uint256', 'bool', 'uint256', 'address'],
+                    [
+                        w3.to_checksum_address(base_address),     # base token
+                        w3.to_checksum_address(quote_address),   # quote token
+                        price_wei,                               # price
+                        quote_amount_wei,                        # quoteAmount
+                        True,                                    # isMaker
+                        current_nonce,                           # n (order ID)
+                        wallet_address                           # recipient
+                    ]
+                )
+                
+                # Build transaction data
+                transaction_data = function_selector + encoded_params.hex()
+                
+                self.logger().info(f"Direct contract BUY order:")
+                self.logger().info(f"  - base: {base_address}")
+                self.logger().info(f"  - quote: {quote_address}")
+                self.logger().info(f"  - price_wei: {price_wei}")
+                self.logger().info(f"  - quote_amount_wei: {quote_amount_wei}")
+                self.logger().info(f"  - nonce: {current_nonce}")
+                
+            else:
+                # For sell orders: base_amount = amount
+                base_amount_wei = int(amount * (10 ** base_decimals))
+                price_wei = int(execution_price * (10 ** quote_decimals))
+                
+                # Build limitSell function call data  
+                # limitSell(address,address,uint256,uint256,bool,uint256,address)
+                # Need to find the function selector for limitSell - let's use a common approach
+                function_selector = w3.keccak(text="limitSell(address,address,uint256,uint256,bool,uint256,address)")[:4].hex()
+                
+                # Encode parameters according to ABI
+                encoded_params = w3.codec.encode(
+                    ['address', 'address', 'uint256', 'uint256', 'bool', 'uint256', 'address'],
+                    [
+                        w3.to_checksum_address(base_address),     # base token
+                        w3.to_checksum_address(quote_address),   # quote token  
+                        price_wei,                               # price
+                        base_amount_wei,                         # baseAmount
+                        True,                                    # isMaker
+                        current_nonce,                           # n (order ID)
+                        wallet_address                           # recipient
+                    ]
+                )
+                
+                # Build transaction data
+                transaction_data = function_selector + encoded_params.hex()
+                
+                self.logger().info(f"Direct contract SELL order:")
+                self.logger().info(f"  - base: {base_address}")
+                self.logger().info(f"  - quote: {quote_address}")
+                self.logger().info(f"  - price_wei: {price_wei}")
+                self.logger().info(f"  - base_amount_wei: {base_amount_wei}")
+                self.logger().info(f"  - nonce: {current_nonce}")
+            
+            # Estimate gas for the transaction
+            try:
+                gas_estimate = w3.eth.estimate_gas({
+                    'from': wallet_address,
+                    'to': exchange_checksum,
+                    'data': transaction_data,
+                    'value': 0
+                })
+                
+                # Add 20% buffer to gas estimate, but ensure it's at least 3M
+                gas_limit = max(int(gas_estimate * 1.2), 3000000)
+                self.logger().info(f"Gas estimate: {gas_estimate}, using gas limit: {gas_limit}")
+                
+            except Exception as e:
+                self.logger().warning(f"Could not estimate gas: {e}, using default 3M")
+                gas_limit = 3000000
+            
+            # Get current gas price
+            gas_price = w3.eth.gas_price
+            
+            # Build transaction
+            transaction = {
+                'from': wallet_address,
+                'to': exchange_checksum,
+                'data': transaction_data,
+                'gas': gas_limit,
+                'gasPrice': gas_price,
+                'nonce': current_nonce,
+                'value': 0,
+                'chainId': CONSTANTS.DOMAIN_CONFIG[self._domain]["chain_id"]
+            }
+            
+            # Sign transaction
+            signed_txn = Account.sign_transaction(transaction, self._private_key)
+            
+            # Send transaction
+            tx_hash = w3.eth.send_raw_transaction(signed_txn.raw_transaction)
+            tx_hash_hex = tx_hash.hex()
+            
+            self.logger().info(f"Direct contract order transaction submitted: {tx_hash_hex}")
+            
+            # Wait for transaction confirmation
+            receipt = None
+            for i in range(30):  # Wait up to 30 seconds
+                try:
+                    receipt = w3.eth.get_transaction_receipt(tx_hash)
+                    if receipt:
+                        break
+                except:
+                    pass
+                await asyncio.sleep(1)
+            
+            if receipt:
+                if receipt.status == 1:
+                    self.logger().info(f"Direct contract order confirmed: {tx_hash_hex}")
+                    return tx_hash_hex
+                else:
+                    self.logger().error(f"Direct contract order failed: {tx_hash_hex}")
+                    self.logger().error(f"Transaction receipt: {receipt}")
+                    raise ValueError(f"Direct contract transaction failed with status {receipt.status}")
+            else:
+                self.logger().warning(f"Could not get receipt for transaction: {tx_hash_hex}")
+                return tx_hash_hex
+                
+        except Exception as e:
+            self.logger().error(f"Error in direct contract order placement: {e}")
             raise
 
     async def _place_cancel(self, order_id: str, tracked_order: InFlightOrder) -> str:
