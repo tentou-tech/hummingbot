@@ -25,6 +25,7 @@ from hummingbot.core.data_type.in_flight_order import InFlightOrder, OrderState,
 from hummingbot.core.data_type.order_book_tracker_data_source import OrderBookTrackerDataSource
 from hummingbot.core.data_type.trade_fee import AddedToCostTradeFee, TradeFeeBase, TokenAmount
 from hummingbot.core.data_type.user_stream_tracker_data_source import UserStreamTrackerDataSource
+from hummingbot.core.event.events import MarketEvent
 from hummingbot.core.network_iterator import NetworkStatus
 from hummingbot.core.utils.estimate_fee import build_trade_fee
 from hummingbot.core.web_assistant.connections.data_types import RESTMethod
@@ -1399,6 +1400,8 @@ class StandardExchange(ExchangePyBase):
             return tx_hash, timestamp
             
         except Exception as e:
+            # Simple error handling following ORDER_FAILURE_HANDLING.md pattern:
+            # Just log and re-raise - let ExchangePyBase._create_order handle the rest
             self.logger().error(f"Error placing order {order_id}: {e}")
             raise
 
@@ -1551,34 +1554,159 @@ class StandardExchange(ExchangePyBase):
             signed_txn = Account.sign_transaction(transaction, self._private_key)
             
             # Send transaction
-            tx_hash = w3.eth.send_raw_transaction(signed_txn.raw_transaction)
-            tx_hash_hex = tx_hash.hex()
-            
-            self.logger().info(f"Direct contract order transaction submitted: {tx_hash_hex}")
+            try:
+                tx_hash = w3.eth.send_raw_transaction(signed_txn.raw_transaction)
+                tx_hash_hex = tx_hash.hex()
+                self.logger().info(f"Direct contract order transaction submitted: {tx_hash_hex}")
+            except Exception as e:
+                self.logger().error(f"Failed to submit transaction: {e}")
+                raise
             
             # Wait for transaction confirmation
             receipt = None
+            
             for i in range(30):  # Wait up to 30 seconds
                 try:
                     receipt = w3.eth.get_transaction_receipt(tx_hash)
                     if receipt:
                         break
-                except:
-                    pass
+                except Exception as e:
+                    # Continue trying unless it's a definitive error
+                    if "transaction not found" not in str(e).lower():
+                        self.logger().warning(f"Error getting transaction receipt (attempt {i+1}/30): {e}")
                 await asyncio.sleep(1)
             
+            # Process transaction confirmation results
             if receipt:
                 if receipt.status == 1:
                     self.logger().info(f"Direct contract order confirmed: {tx_hash_hex}")
                     return tx_hash_hex
                 else:
-                    self.logger().error(f"Direct contract order failed: {tx_hash_hex}")
+                    # Transaction was mined but failed
+                    self.logger().error(f"Direct contract order failed on blockchain: {tx_hash_hex}")
                     self.logger().error(f"Transaction receipt: {receipt}")
-                    raise ValueError(f"Direct contract transaction failed with status {receipt.status}")
+                    
+                    # Try to get more detailed error information
+                    error_details = f"Transaction failed with status {receipt.status}"
+                    
+                    # Get gas usage information to detect out of gas errors
+                    if hasattr(receipt, 'gasUsed') and hasattr(receipt, 'gasLimit'):
+                        gas_used = receipt.gasUsed
+                        # Try to get the original transaction to see gas limit
+                        try:
+                            tx = w3.eth.get_transaction(tx_hash)
+                            gas_limit = tx.gas
+                            if gas_used >= gas_limit * 0.95:  # Used more than 95% of gas limit
+                                error_details += " (likely OUT_OF_GAS)"
+                        except Exception as e:
+                            self.logger().warning(f"Could not get transaction details for gas analysis: {e}")
+                    
+                    # Try to get revert reason if available
+                    try:
+                        # Attempt to replay the transaction to get revert reason
+                        tx = w3.eth.get_transaction(tx_hash)
+                        w3.eth.call({
+                            'to': tx.to,
+                            'from': tx['from'],
+                            'data': tx.input,
+                            'value': tx.value,
+                            'gas': tx.gas,
+                            'gasPrice': tx.gasPrice
+                        }, block_identifier=receipt.blockNumber - 1)
+                    except Exception as revert_error:
+                        # The call failed, which gives us the revert reason
+                        revert_reason = str(revert_error)
+                        if "execution reverted" in revert_reason.lower():
+                            error_details += f" - Revert reason: {revert_reason}"
+                    
+                    raise Exception(error_details)
             else:
+                # Could not get receipt - transaction may be pending or dropped
                 self.logger().warning(f"Could not get receipt for transaction: {tx_hash_hex}")
+                
+                # For now, return the transaction hash but this might need more sophisticated handling
+                # in production to check if transaction was actually dropped
                 return tx_hash_hex
                 
+    async def _wait_for_transaction_confirmation(self, tx_hash: bytes, w3) -> str:
+        """
+        Wait for transaction confirmation and check status.
+        
+        Args:
+            tx_hash: Transaction hash bytes
+            w3: Web3 instance
+            
+        Returns:
+            Transaction hash hex string if successful
+            
+        Raises:
+            Exception: If transaction fails or times out
+        """
+        import asyncio
+        
+        tx_hash_hex = tx_hash.hex() if isinstance(tx_hash, bytes) else tx_hash
+        receipt = None
+        
+        for i in range(30):  # Wait up to 30 seconds
+            try:
+                receipt = w3.eth.get_transaction_receipt(tx_hash)
+                if receipt:
+                    break
+            except Exception as e:
+                # Continue trying unless it's a definitive error
+                if "transaction not found" not in str(e).lower():
+                    self.logger().warning(f"Error getting transaction receipt (attempt {i+1}/30): {e}")
+            await asyncio.sleep(1)
+        
+        # Process transaction confirmation results
+        if receipt:
+            if receipt.status == 1:
+                self.logger().info(f"Transaction confirmed: {tx_hash_hex}")
+                return tx_hash_hex
+            else:
+                # Transaction was mined but failed
+                self.logger().error(f"Transaction failed on blockchain: {tx_hash_hex}")
+                self.logger().error(f"Transaction receipt: {receipt}")
+                
+                # Try to get more detailed error information
+                error_details = f"Transaction failed with status {receipt.status}"
+                
+                # Get gas usage information to detect out of gas errors
+                if hasattr(receipt, 'gasUsed'):
+                    gas_used = receipt.gasUsed
+                    # Try to get the original transaction to see gas limit
+                    try:
+                        tx = w3.eth.get_transaction(tx_hash)
+                        gas_limit = tx.gas
+                        if gas_used >= gas_limit * 0.95:  # Used more than 95% of gas limit
+                            error_details += " (likely OUT_OF_GAS)"
+                    except Exception as e:
+                        self.logger().warning(f"Could not get transaction details for gas analysis: {e}")
+                
+                # Try to get revert reason if available
+                try:
+                    # Attempt to replay the transaction to get revert reason
+                    tx = w3.eth.get_transaction(tx_hash)
+                    w3.eth.call({
+                        'to': tx.to,
+                        'from': tx['from'],
+                        'data': tx.input,
+                        'value': tx.value,
+                        'gas': tx.gas,
+                        'gasPrice': tx.gasPrice
+                    }, block_identifier=receipt.blockNumber - 1)
+                except Exception as revert_error:
+                    # The call failed, which gives us the revert reason
+                    revert_reason = str(revert_error)
+                    if "execution reverted" in revert_reason.lower():
+                        error_details += f" - Revert reason: {revert_reason}"
+                
+                raise Exception(error_details)
+        else:
+            # Could not get receipt - transaction may be pending or dropped
+            self.logger().warning(f"Could not get receipt for transaction: {tx_hash_hex}")
+            raise Exception(f"Transaction confirmation timeout: {tx_hash_hex}")
+
         except Exception as e:
             self.logger().error(f"Error in direct contract order placement: {e}")
             raise
@@ -2458,7 +2586,7 @@ class StandardExchange(ExchangePyBase):
             return loop.run_until_complete(self._get_token_balance_web3(token))
         except Exception:
             return s_decimal_0
-
+    
     def _is_user_stream_initialized(self) -> bool:
         """
         Override to always return True since Somnia uses REST API polling instead of WebSocket user streams.

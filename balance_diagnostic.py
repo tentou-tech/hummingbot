@@ -46,8 +46,8 @@ async def test_balance_diagnostics():
         print("\n2. Testing Imports...")
         
         try:
-            from hummingbot.connector.exchange.standard_testnet.standard_testnet_exchange import StandardTestnetExchange
-            print("✅ StandardTestnetExchange import successful")
+            from hummingbot.connector.exchange.standard.standard_exchange import StandardExchange
+            print("✅ StandardExchange import successful")
         except Exception as e:
             print(f"❌ Import failed: {e}")
             traceback.print_exc()
@@ -77,13 +77,13 @@ async def test_balance_diagnostics():
         print("\n4. Testing StandardWeb3 Client...")
         
         try:
-            from hummingbot.connector.exchange.standard_testnet.standard_testnet_exchange import StandardTestnetExchange
+            from hummingbot.connector.exchange.standard.standard_exchange import StandardExchange
             from hummingbot.client.config.client_config_map import ClientConfigMap
             
             config_map = ClientConfigMap()
             
             # Create connector
-            connector = StandardTestnetExchange(
+            connector = StandardExchange(
                 client_config_map=config_map,
                 somnia_wallet_address=wallet_address,
                 somnia_private_key=private_key,
