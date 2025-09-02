@@ -370,8 +370,10 @@ class StandardAPIOrderBookDataSource(OrderBookTrackerDataSource):
         # Prepare the API endpoint for order book ticks
         # Format: /api/orderbook/ticks/{base}/{quote}/{limit}
         limit = 20  # Get top 20 levels
-        endpoint = f"/api/orderbook/ticks/{base_address}/{quote_address}/{limit}"
-        url = f"{base_url}{endpoint}"
+        endpoint = f"api/orderbook/ticks/{base_address}/{quote_address}/{limit}"
+        # Remove trailing slash from base_url if present to avoid double slash
+        base_url = base_url.rstrip("/")
+        url = f"{base_url}/{endpoint}"
         
         self.logger().info(f"🌐 Making REST API call to: {url}")
         

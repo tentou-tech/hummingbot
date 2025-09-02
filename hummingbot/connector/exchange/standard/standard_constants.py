@@ -22,7 +22,7 @@ DOMAIN_CONFIG = {
     "mainnet": {
         "chain_id": 5031,  # Somnia mainnet chain ID
         "rpc_url": "https://api.infra.mainnet.somnia.network",
-        "api_url": "https://api-somi.standardweb3.com/",  # Base URL for API calls
+        "api_url": "https://api-somi.standardweb3.com",  # Base URL for API calls
         "websocket_url": "wss://ws3-somnia-mainnet-ponder-release.standardweb3.com",  # Ponder websocket
         "standard_exchange_address": "0x3Cb2CBb0CeB96c9456b11DbC7ab73c4848F9a14c",  # Mainnet exchange address
         "standard_websocket_url": "https://ws1-somnia-mainnet-websocket-release.standardweb3.com/",  # Standard websocket
