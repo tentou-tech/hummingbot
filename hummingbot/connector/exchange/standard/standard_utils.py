@@ -22,7 +22,7 @@ except ImportError:
 # Required constants for connector registration
 CENTRALIZED = True  # Standard Testnet is a centralized exchange (CLOB)
 USE_ETHEREUM_WALLET = False  # Set to False so it appears in balance command  
-EXAMPLE_PAIR = "SOMI-USDC"
+EXAMPLE_PAIR = "SOMI-USDC" if DEFAULT_DOMAIN == "mainnet" else "STT-USDC"
 DEFAULT_FEES = [0.1, 0.1]  # [maker_fee_percent, taker_fee_percent]
 USE_ETH_GAS_LOOKUP = False  # Uses its own gas estimation
 
