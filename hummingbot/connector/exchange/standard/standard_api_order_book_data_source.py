@@ -72,10 +72,9 @@ class StandardAPIOrderBookDataSource(OrderBookTrackerDataSource):
                 private_key='0x0000000000000000000000000000000000000000000000000000000000000001',  # dummy key for read-only operations
                 http_rpc_url=CONSTANTS.DOMAIN_CONFIG[self._domain]["rpc_url"],
                 matching_engine_address=CONSTANTS.DOMAIN_CONFIG[self._domain]["standard_exchange_address"],
-                api_url=CONSTANTS.DOMAIN_CONFIG[self._domain]["rest_api_base_url"],
-                network_name=CONSTANTS.DOMAIN_CONFIG[self._domain]["network_name"]  # Add network name from domain config
+                api_url=CONSTANTS.DOMAIN_CONFIG[self._domain]["api_url"]
             )
-            self.logger().info(f"✅ StandardWeb3 client initialized successfully for {CONSTANTS.DOMAIN_CONFIG[self._domain]['network_name']}")
+            self.logger().info(f"✅ StandardWeb3 client initialized successfully")
         except Exception as e:
             self.logger().error(f"❌ Failed to initialize StandardWeb3 client: {e}")
             self._standard_client = None
@@ -252,7 +251,7 @@ class StandardAPIOrderBookDataSource(OrderBookTrackerDataSource):
         # Method 2: Fallback to REST API
         try:
             self.logger().info("🥈 FALLBACK: Using REST API method")
-            base_url = CONSTANTS.DOMAIN_CONFIG[self._domain]["rest_api_base_url"]
+            base_url = CONSTANTS.DOMAIN_CONFIG[self._domain]["api_url"]
             return await self._fetch_via_rest_api(base_address, quote_address, trading_pair, base_url)
         except Exception as e:
             self.logger().error(f"💥 Both StandardWeb3 and REST API methods failed for {trading_pair}")

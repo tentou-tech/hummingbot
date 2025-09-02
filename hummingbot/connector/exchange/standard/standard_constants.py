@@ -7,33 +7,26 @@ from hummingbot.core.api_throttler.data_types import RateLimit
 
 # Exchange information
 EXCHANGE_NAME = "standard"
-DEFAULT_DOMAIN = os.getenv("SOMNIA_DOMAIN", "testnet")  # Can be "mainnet" or "testnet", configurable via .env file
+# Force domain to mainnet
+DEFAULT_DOMAIN = "mainnet"  # Changed from os.getenv("SOMNIA_DOMAIN", "testnet") to force mainnet
 
 # Domain-specific configurations
 DOMAIN_CONFIG = {
     "mainnet": {
-        "chain_id": 52801,  # Somnia mainnet chain ID
-        "rpc_url": "https://mainnet-rpc.somnia.network",
-        "graphql_endpoint": "https://somnia-mainnet-ponder-release.standardweb3.com",
-        "websocket_url": "wss://ws3-somnia-mainnet-ponder-release.standardweb3.com",
-        "standard_exchange_address": "0x0d3251EF0D66b60C4E387FC95462Bf274e50CBE1",  # Update with mainnet address
-        "standard_api_url": "https://somnia-mainnet-ponder-release.standardweb3.com/",
-        "standard_websocket_url": "https://ws1-somnia-mainnet-websocket-release.standardweb3.com/",
-        "rest_api_base_url": "https://somnia-mainnet-ponder-release.standardweb3.com",
-        "graphql_api_url": "https://somnia-mainnet-ponder-release.standardweb3.com/",
-        "network_name": "Somnia Mainnet",  # Network name for StandardWeb3 client
+        "chain_id": 5031,  # Somnia mainnet chain ID
+        "rpc_url": "https://api.infra.mainnet.somnia.network",
+        "api_url": "https://somnia-mainnet-ponder-release.standardweb3.com/",  # Base URL for API calls
+        "websocket_url": "wss://ws3-somnia-mainnet-ponder-release.standardweb3.com",  # Ponder websocket
+        "standard_exchange_address": "0x3Cb2CBb0CeB96c9456b11DbC7ab73c4848F9a14c",  # Mainnet exchange address
+        "standard_websocket_url": "https://ws1-somnia-mainnet-websocket-release.standardweb3.com/",  # Standard websocket
     },
     "testnet": {
         "chain_id": 50312,  # Somnia testnet chain ID
         "rpc_url": "https://dream-rpc.somnia.network",
-        "graphql_endpoint": "https://somnia-testnet-ponder-release.standardweb3.com",
-        "websocket_url": "wss://ws3-somnia-testnet-ponder-release.standardweb3.com",
+        "api_url": "https://somnia-testnet-ponder-release.standardweb3.com/",  # Base URL for API calls
+        "websocket_url": "wss://ws3-somnia-testnet-ponder-release.standardweb3.com",  # Ponder websocket
         "standard_exchange_address": "0x0d3251EF0D66b60C4E387FC95462Bf274e50CBE1",
-        "standard_api_url": "https://somnia-testnet-ponder-release.standardweb3.com/",
-        "standard_websocket_url": "https://ws1-somnia-testnet-websocket-release.standardweb3.com/",
-        "rest_api_base_url": "https://somnia-testnet-ponder-release.standardweb3.com",
-        "graphql_api_url": "https://somnia-testnet-ponder-release.standardweb3.com/",
-        "network_name": "Somnia Testnet",  # Network name for StandardWeb3 client
+        "standard_websocket_url": "https://ws1-somnia-testnet-websocket-release.standardweb3.com/",  # Standard websocket
     }
 }
 
@@ -52,23 +45,21 @@ def get_domain_parameter(domain: str, parameter: str):
 # Network configuration (these will be set dynamically based on domain)
 SOMNIA_CHAIN_ID = DOMAIN_CONFIG[DEFAULT_DOMAIN]["chain_id"]
 SOMNIA_RPC_URL = os.getenv("SOMNIA_RPC_URL", DOMAIN_CONFIG[DEFAULT_DOMAIN]["rpc_url"])
-SOMNIA_GRAPHQL_ENDPOINT = os.getenv("SOMNIA_GRAPHQL_ENDPOINT", DOMAIN_CONFIG[DEFAULT_DOMAIN]["graphql_endpoint"])
 SOMNIA_WEBSOCKET_URL = os.getenv("SOMNIA_WEBSOCKET_URL", DOMAIN_CONFIG[DEFAULT_DOMAIN]["websocket_url"])
 
 # Standard Exchange protocol endpoints
 STANDARD_EXCHANGE_ADDRESS = DOMAIN_CONFIG[DEFAULT_DOMAIN]["standard_exchange_address"]
-STANDARD_API_URL = os.getenv("SOMNIA_STANDARD_API_URL", DOMAIN_CONFIG[DEFAULT_DOMAIN]["standard_api_url"])
+STANDARD_API_URL = os.getenv("SOMNIA_STANDARD_API_URL", DOMAIN_CONFIG[DEFAULT_DOMAIN]["api_url"])
 STANDARD_WEBSOCKET_URL = os.getenv("SOMNIA_STANDARD_WEBSOCKET_URL", DOMAIN_CONFIG[DEFAULT_DOMAIN]["standard_websocket_url"])
 
-# REST API base URL
-REST_API_BASE_URL = DOMAIN_CONFIG[DEFAULT_DOMAIN]["rest_api_base_url"]
+# REST API base URL (same as the API URL)
+REST_API_BASE_URL = STANDARD_API_URL
 
-# GraphQL and REST API endpoints  
-GRAPHQL_API_URL = os.getenv("SOMNIA_GRAPHQL_API_URL", DOMAIN_CONFIG[DEFAULT_DOMAIN]["graphql_api_url"])
+# API endpoints
 BALANCE_API_ENDPOINT = "/api/balance"  # For balance queries
 MATCH_HISTORY_API_ENDPOINT = "/api/matchhistory"  # For order history
 
-# API Endpoints
+# API Versions
 REST_API_VERSION = "v1"
 WS_API_VERSION = "v1"
 
@@ -104,9 +95,7 @@ ORDER_STATUS_UPDATE_INTERVAL = 10.0
 # Trading pairs available on each network
 TRADING_PAIRS_PER_DOMAIN = {
     "mainnet": [
-        "STT-USDC",
-        "WBTC-USDC",
-        "SOL-USDC",
+        "SOMI-USDC"
         # Add other mainnet pairs as they become available
     ],
     "testnet": [
@@ -123,24 +112,24 @@ TRADING_PAIRS_PER_DOMAIN = {
 # Legacy reference for backward compatibility (points to current domain's pairs)
 SOMNIA_TESTNET_TRADING_PAIRS = TRADING_PAIRS_PER_DOMAIN[DEFAULT_DOMAIN]
 
-# Default tokens for balance checking and non-trading mode
-DEFAULT_TOKENS = {"STT", "USDC", "SOMNIA"}
+# Default tokens for balance checking based on current domain
+DEFAULT_TOKENS_PER_DOMAIN = {
+    "mainnet": {"SOMI", "USDC"},
+    "testnet": {"STT", "USDC"}
+}
+
+# Get default tokens based on current domain
+DEFAULT_TOKENS = DEFAULT_TOKENS_PER_DOMAIN[DEFAULT_DOMAIN]
 
 # Token address mappings per domain
 TOKEN_ADDRESSES_PER_DOMAIN = {
     "mainnet": {
-        "STT": "0x4A3BC48C156384f9564Fd65A53a2f3D534D8f2b7",  # Update with actual mainnet addresses
-        "USDC": "0x0ED782B8079529f7385c3eDA9fAf1EaA0DbC6a17", 
-        "WBTC": "0x54597df4E4A6385B77F39d458Eb75443A8f9Aa9e",
-        "SOL": "0x...",  # To be added when SOL mainnet address is available
-        "ATOM": "0x...",  # To be added when available
-        "OSMO": "0x...",  # To be added when available
-        "TOKEN1": "0x33E7fAB0a8a5da1A923180989bD617c9c2D1C493",
-        "TOKEN2": "0x9beaA0016c22B646Ac311Ab171270B0ECf23098F",
+        "SOMI": "0x0000000000000000000000000000000000000000",  # Native token for Somnia mainnet
+        "USDC": "0x28BEc7E30E6faee657a03e19Bf1128AaD7632A00",  # Mainnet USDC token address
     },
     "testnet": {
-        "STT": "0x4A3BC48C156384f9564Fd65A53a2f3D534D8f2b7",
-        "USDC": "0x0ED782B8079529f7385c3eDA9fAf1EaA0DbC6a17", 
+        "STT": "0x0000000000000000000000000000000000000000",  # Native token for Somnia testnet
+        "USDC": "0x0ED782B8079529f7385c3eDA9fAf1EaA0DbC6a17",  # Testnet USDC token address
         "WBTC": "0x54597df4E4A6385B77F39d458Eb75443A8f9Aa9e",
         "SOL": "0x...",  # To be added when SOL testnet address is available
         "ATOM": "0x...",  # To be added when available
@@ -245,6 +234,18 @@ RATE_LIMITS = [
 POST_ORDER_PATH_URL = "POST_ORDER"
 DELETE_ORDER_PATH_URL = "DELETE_ORDER"
 GET_ACCOUNT_PATH_URL = "GET_ACCOUNT_INFO"  # Alias for backward compatibility
+
+# Native tokens per domain
+NATIVE_TOKENS_PER_DOMAIN = {
+    "mainnet": "SOMI",
+    "testnet": "SOMNIA"
+}
+
+# Get native token for current domain
+NATIVE_TOKEN = NATIVE_TOKENS_PER_DOMAIN[DEFAULT_DOMAIN]
+
+# List of all tokens that should be treated as native (chain tokens)
+NATIVE_TOKEN_LIST = ["ETH", "SOMNIA", "SOMI", "STT"]
 
 # Error messages
 ERROR_MESSAGES = {

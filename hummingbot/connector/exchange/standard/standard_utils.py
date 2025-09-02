@@ -8,6 +8,7 @@ from typing import Dict, List, Optional, Tuple
 from pydantic import Field, SecretStr
 
 from hummingbot.client.config.config_data_types import BaseConnectorConfigMap
+from hummingbot.connector.exchange.standard import standard_constants as CONSTANTS
 from hummingbot.connector.exchange.standard.standard_constants import get_token_addresses, TOKEN_DECIMALS, DEFAULT_DOMAIN
 from hummingbot.core.utils.async_utils import safe_ensure_future
 
@@ -21,7 +22,7 @@ except ImportError:
 # Required constants for connector registration
 CENTRALIZED = True  # Standard Testnet is a centralized exchange (CLOB)
 USE_ETHEREUM_WALLET = False  # Set to False so it appears in balance command  
-EXAMPLE_PAIR = "STT-USDC"
+EXAMPLE_PAIR = "SOMI-USDC"
 DEFAULT_FEES = [0.1, 0.1]  # [maker_fee_percent, taker_fee_percent]
 USE_ETH_GAS_LOOKUP = False  # Uses its own gas estimation
 
@@ -156,7 +157,8 @@ def convert_from_exchange_trading_pair(exchange_trading_pair: str) -> str:
     pair = exchange_trading_pair.upper()
     
     # Known token symbols to help with splitting
-    known_tokens = ["STT", "USDC", "WBTC", "ATOM", "OSMO", "TOKEN1", "TOKEN2", "SOMNIA"]
+    known_tokens = list(CONSTANTS.TOKEN_ADDRESSES_PER_DOMAIN["mainnet"].keys()) + list(CONSTANTS.TOKEN_ADDRESSES_PER_DOMAIN["testnet"].keys())
+    known_tokens = list(set(known_tokens))  # Remove duplicates
     
     # Try to find a match where the pair starts with a known token
     for token in known_tokens:
@@ -344,5 +346,4 @@ def build_standard_web3_config() -> Dict:
         "exchange_address": config["standard_exchange_address"],
         "api_url": config["standard_api_url"],
         "websocket_url": config["standard_websocket_url"],
-        "network_name": config["network_name"],  # Use the network name from domain config
     }

@@ -68,8 +68,7 @@ def public_rest_url(path_url: str, domain: str = CONSTANTS.DEFAULT_DOMAIN, **kwa
         return path_url
     
     # Get the base URL for the specified domain
-    base_url = CONSTANTS.DOMAIN_CONFIG[domain]["rest_api_base_url"].rstrip('/')
-    graphql_endpoint = CONSTANTS.DOMAIN_CONFIG[domain]["graphql_endpoint"]
+    base_url = CONSTANTS.DOMAIN_CONFIG[domain]["api_url"].rstrip('/')
     
     # Check if path_url is a key in REST_API_ENDPOINTS
     if hasattr(CONSTANTS, 'REST_API_ENDPOINTS') and path_url in CONSTANTS.REST_API_ENDPOINTS:
@@ -80,7 +79,7 @@ def public_rest_url(path_url: str, domain: str = CONSTANTS.DEFAULT_DOMAIN, **kwa
     
     # For GraphQL endpoints (legacy support)
     if "graphql" in path_url.lower():
-        return graphql_endpoint + "/graphql"
+        return base_url + "/graphql"
     
     # For other API endpoints - ensure proper URL joining with /
     path = path_url.lstrip('/')

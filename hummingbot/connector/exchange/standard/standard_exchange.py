@@ -160,26 +160,23 @@ class StandardExchange(ExchangePyBase):
                 self._rpc_url = rpc_url
                 
                 # Use domain-specific endpoints
-                api_url = domain_config["graphql_endpoint"]
+                api_url = domain_config["api_url"]
                 websocket_url = domain_config["websocket_url"]
                 matching_engine_address = domain_config["standard_exchange_address"]
                 
                 self.logger().info(f"StandardWeb3 config - API: {api_url}, WS: {websocket_url}, ME: {matching_engine_address}")
                 self.logger().info(f"Using private key length: {len(standard_client_private_key)} characters")
                 
-                # Get network name from domain config
-                network_name = CONSTANTS.DOMAIN_CONFIG[self._domain]["network_name"]
-                
+                # Initialize StandardClient without networkName parameter
                 self._standard_client = StandardClient(
                     private_key=standard_client_private_key,
                     http_rpc_url=rpc_url,
                     matching_engine_address=matching_engine_address,
-                    networkName=network_name,
                     api_url=api_url,
                     websocket_url=websocket_url,
                     api_key=api_key
                 )
-                self.logger().info(f"StandardWeb3 client initialized successfully with {network_name}")
+                self.logger().info(f"StandardWeb3 client initialized successfully")
             except Exception as e:
                 self.logger().error(f"Failed to initialize StandardWeb3 client: {e}")
                 self.logger().info("StandardWeb3 client disabled due to error")
@@ -281,7 +278,7 @@ class StandardExchange(ExchangePyBase):
     @property
     def client_order_id_prefix(self) -> str:
         """Prefix for client order IDs."""
-        return "SOMNIA"
+        return CONSTANTS.NATIVE_TOKENS_PER_DOMAIN[self._domain]
 
     @property
     def trading_rules_request_path(self) -> str:
@@ -587,7 +584,8 @@ class StandardExchange(ExchangePyBase):
             contracts = {}
             
             # Get token addresses from constants
-            for symbol in ["STT", "USDC"]:
+            default_tokens = CONSTANTS.DEFAULT_TOKENS_PER_DOMAIN.get(self._domain, set())
+            for symbol in default_tokens:
                 address = utils.convert_symbol_to_address(symbol, self._domain)
                 if address and address != "0x...":
                     # Get decimals from constants
@@ -644,8 +642,8 @@ class StandardExchange(ExchangePyBase):
             }
             
             # Get balances for known tokens
-            known_tokens = ["STT", "USDC"]
-            for token in known_tokens:
+            default_tokens = CONSTANTS.DEFAULT_TOKENS_PER_DOMAIN.get(self._domain, set())
+            for token in default_tokens:
                 try:
                     # This would use StandardWeb3 to get actual balance
                     balance = "0"  # Placeholder - implement actual balance fetching
@@ -1487,9 +1485,11 @@ class StandardExchange(ExchangePyBase):
                     tokens.add(base)
                     tokens.add(quote)
                     
-                # Always include native SOMNIA token for trading mode
+                # Always include native token for trading mode based on current domain
                 if self._trading_required:
-                    tokens.add("SOMNIA")
+                    native_token = CONSTANTS.NATIVE_TOKEN
+                    tokens.add(native_token)
+                    self.logger().debug(f"Added native token for {self._domain}: {native_token}")
             
             self.logger().info(f"Fetching balances for tokens: {sorted(tokens)}")
             
@@ -1561,8 +1561,8 @@ class StandardExchange(ExchangePyBase):
             # Use direct Web3 connection to Somnia RPC instead of StandardClient
             from web3 import Web3
             
-            # Create Web3 instance with Somnia RPC
-            rpc_url = "https://dream-rpc.somnia.network"
+            # Create Web3 instance with Somnia RPC from domain config
+            rpc_url = CONSTANTS.DOMAIN_CONFIG[self._domain]["rpc_url"]
             w3 = Web3(Web3.HTTPProvider(rpc_url))
             
             if not w3.is_connected():
@@ -1575,32 +1575,14 @@ class StandardExchange(ExchangePyBase):
             self.logger().debug(f"Getting balance for {token} at address {wallet_address}")
             self.logger().debug(f"wallet_address type: {type(wallet_address)}")
             
-            if token.upper() in ["ETH", "SOMNIA", "STT"]:
-                # Native token balance - try both native and ERC20 for STT
-                if token.upper() == "STT":
-                    # For STT, try native balance first
-                    try:
-                        native_balance_wei = w3.eth.get_balance(wallet_address)
-                        native_balance = w3.from_wei(native_balance_wei, 'ether')
-                        if native_balance > 0:
-                            balance_decimal = Decimal(str(native_balance))
-                            self.logger().debug(f"Native STT balance: {balance_decimal}")
-                            return balance_decimal
-                        else:
-                            self.logger().debug("Native STT balance is 0, trying ERC20...")
-                            # Fall through to ERC20 logic below
-                    except Exception as native_error:
-                        self.logger().debug(f"Native STT check failed: {native_error}, trying ERC20...")
-                        # Fall through to ERC20 logic below
-                else:
-                    # For other native tokens
-                    balance_wei = w3.eth.get_balance(wallet_address)
-                    balance = w3.from_wei(balance_wei, 'ether')
-                    balance_decimal = Decimal(str(balance))
-                    self.logger().debug(f"Native {token} balance: {balance_decimal}")
-                    return balance_decimal
+            if token.upper() in CONSTANTS.NATIVE_TOKEN_LIST:
+                # For other native tokens
+                balance_wei = w3.eth.get_balance(wallet_address)
+                balance = w3.from_wei(balance_wei, 'ether')
+                balance_decimal = Decimal(str(balance))
+                self.logger().debug(f"Native {token} balance: {balance_decimal}")
+                return balance_decimal
             
-            # ERC-20 token balance (or STT fallback)
             token_address = utils.convert_symbol_to_address(token, self._domain)
             if not token_address or token_address == "0x...":
                 self.logger().warning(f"Token address not found or incomplete for {token}")
@@ -1679,8 +1661,8 @@ class StandardExchange(ExchangePyBase):
                 token_address = token_response["id"]
                 decimals = token_response.get("decimals", 18)
                 
-                # For native token (STT), use account data which might include balance info
-                if token.upper() == "STT":
+                # For native tokens, use account data which might include balance info
+                if token.upper() in CONSTANTS.NATIVE_TOKEN_LIST:
                     # Try to get account data for potential balance information
                     account_url = f"{CONSTANTS.STANDARD_API_URL}/api/account/{self._wallet_address}"
                     account_response = await rest_assistant.execute_request(
