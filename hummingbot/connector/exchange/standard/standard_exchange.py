@@ -1628,6 +1628,10 @@ class StandardExchange(ExchangePyBase):
                 # in production to check if transaction was actually dropped
                 return tx_hash_hex
                 
+        except Exception as e:
+            self.logger().error(f"Error in direct contract order placement: {e}")
+            raise
+
     async def _wait_for_transaction_confirmation(self, tx_hash: bytes, w3) -> str:
         """
         Wait for transaction confirmation and check status.
@@ -1706,10 +1710,6 @@ class StandardExchange(ExchangePyBase):
             # Could not get receipt - transaction may be pending or dropped
             self.logger().warning(f"Could not get receipt for transaction: {tx_hash_hex}")
             raise Exception(f"Transaction confirmation timeout: {tx_hash_hex}")
-
-        except Exception as e:
-            self.logger().error(f"Error in direct contract order placement: {e}")
-            raise
 
     async def _place_cancel(self, order_id: str, tracked_order: InFlightOrder) -> str:
         """
