@@ -1,0 +1,59 @@
+version: "3.8"
+
+services:
+  hummingbot:
+    image: hummingbot-hummingbot:latest
+    container_name: hummingbot
+    volumes:
+      - ./conf:/home/hummingbot/conf
+      - ./logs:/home/hummingbot/logs
+      - ./data:/home/hummingbot/data
+      - ./certs:/home/hummingbot/certs
+      - ./scripts:/home/hummingbot/scripts
+    environment:
+      - CONFIG_FILE_NAME=conf_client.yml
+      - STRATEGY=simple_pmm
+    restart: unless-stopped
+    tty: true
+    stdin_open: true
+    networks:
+      - hummingbot-network
+
+  hummingbot-api:
+    image: hummingbot/hummingbot-api:latest
+    container_name: hummingbot-api
+    volumes:
+      - ./conf:/home/hummingbot/conf
+      - ./logs:/home/hummingbot/logs
+      - ./data:/home/hummingbot/data
+      - ./certs:/home/hummingbot/certs
+    environment:
+      - CONFIG_FILE_NAME=conf_client.yml
+    ports:
+      - "8000:8000" # API server port
+    networks:
+      - hummingbot-network
+    restart: unless-stopped
+    depends_on:
+      - hummingbot
+
+  dashboard:
+    image: hummingbot/dashboard:latest
+    container_name: hummingbot-dashboard
+    ports:
+      - "8501:8501" # Streamlit dashboard
+    volumes:
+      - ./conf:/home/hummingbot/conf
+      - ./logs:/home/hummingbot/logs
+      - ./data:/home/hummingbot/data
+    environment:
+      - HUMMINGBOT_INSTANCE_URL=http://hummingbot-api:8000
+    networks:
+      - hummingbot-network
+    restart: unless-stopped
+    depends_on:
+      - hummingbot-api
+
+networks:
+  hummingbot-network:
+    driver: bridge
