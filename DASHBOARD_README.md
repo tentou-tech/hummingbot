@@ -4,20 +4,30 @@ This repository has been successfully built as a Docker image and configured for
 
 ## 🚀 Quick Start
 
-### Using the startup script (Recommended)
+### Option 1: Dashboard + Hummingbot (Recommended)
 
 ```bash
-./start-dashboard
+# Start services with just dashboard (no API)
+docker-compose -f docker-compose.dashboard-simple.yml up -d
+
+# Check status
+docker-compose -f docker-compose.dashboard-simple.yml ps
 ```
 
-### Manual setup
+### Option 2: Full setup with API
 
 ```bash
-# Start services
+# Start all services including API (requires database setup)
 docker-compose -f docker-compose.dashboard.yml up -d
 
 # Check status
 docker-compose -f docker-compose.dashboard.yml ps
+```
+
+### Using the startup script
+
+```bash
+./start-dashboard
 ```
 
 ## 📊 Access Points
@@ -71,6 +81,16 @@ For more detailed setup instructions, visit:
 ```bash
 docker-compose -f docker-compose.dashboard.yml logs hummingbot
 docker-compose -f docker-compose.dashboard.yml logs dashboard
+```
+
+### API Connection Issues
+
+If the API container fails to start due to database connection errors:
+
+```bash
+# Use the simplified setup without API
+docker-compose -f docker-compose.dashboard.yml down
+docker-compose -f docker-compose.dashboard-simple.yml up -d
 ```
 
 ### Rebuild the image

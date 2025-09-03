@@ -1,6 +1,19 @@
 version: "3.8"
 
 services:
+  postgres:
+    image: postgres:13
+    container_name: hummingbot-postgres
+    environment:
+      - POSTGRES_DB=hummingbot
+      - POSTGRES_USER=hummingbot
+      - POSTGRES_PASSWORD=hummingbot123
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - hummingbot-network
+    restart: unless-stopped
+
   hummingbot:
     image: hummingbot-hummingbot:latest
     container_name: hummingbot
@@ -27,8 +40,10 @@ services:
       - ./logs:/home/hummingbot/logs
       - ./data:/home/hummingbot/data
       - ./certs:/home/hummingbot/certs
+      - /var/run/docker.sock:/var/run/docker.sock
     environment:
       - CONFIG_FILE_NAME=conf_client.yml
+      - DATABASE_URL=postgresql://hummingbot:hummingbot123@postgres:5432/hummingbot
     ports:
       - "8000:8000" # API server port
     networks:
@@ -36,6 +51,7 @@ services:
     restart: unless-stopped
     depends_on:
       - hummingbot
+      - postgres
 
   dashboard:
     image: hummingbot/dashboard:latest
@@ -48,6 +64,10 @@ services:
       - ./data:/home/hummingbot/data
     environment:
       - HUMMINGBOT_INSTANCE_URL=http://hummingbot-api:8000
+      - BACKEND_API_HOST=hummingbot-api
+      - BACKEND_API_PORT=8000
+      - BACKEND_API_USERNAME=admin
+      - BACKEND_API_PASSWORD=admin
     networks:
       - hummingbot-network
     restart: unless-stopped
@@ -57,3 +77,6 @@ services:
 networks:
   hummingbot-network:
     driver: bridge
+
+volumes:
+  postgres_data:
