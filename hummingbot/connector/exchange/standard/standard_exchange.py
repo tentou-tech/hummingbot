@@ -1408,37 +1408,53 @@ class StandardExchange(ExchangePyBase):
                 )
             
             # Store order ID mapping for cancellation
-            # Since n parameter is max orders to match (not unique order ID), 
-            # we'll use transaction hash as the blockchain order identifier
-            self._order_id_map[order_id] = {
-                'blockchain_order_id': tx_hash,  # Use transaction hash as identifier
-                'base_address': base_address,
-                'quote_address': quote_address,
-                'is_bid': is_buy
-            }
+            # Handle both old format (just tx_hash string) and new format (dict with tx_hash and order_id)
+            if isinstance(tx_hash, dict):
+                # New format: extract both transaction hash and order ID
+                transaction_hash = tx_hash.get('tx_hash')
+                actual_order_id = tx_hash.get('order_id')
+                
+                self._order_id_map[order_id] = {
+                    'blockchain_order_id': actual_order_id if actual_order_id else transaction_hash,  # Use order ID if available, fallback to tx hash
+                    'transaction_hash': transaction_hash,  # Keep tx hash for reference
+                    'base_address': base_address,
+                    'quote_address': quote_address,
+                    'is_bid': is_buy
+                }
+                
+                self.logger().info(f"Order placed successfully: {order_id} -> {transaction_hash} (order_id: {actual_order_id}, max_matches: {MAX_ORDERS_TO_MATCH})")
+                tx_hash_for_return = transaction_hash
+            else:
+                # Old format: just transaction hash (fallback)
+                self._order_id_map[order_id] = {
+                    'blockchain_order_id': tx_hash,  # Use transaction hash as identifier
+                    'transaction_hash': tx_hash,
+                    'base_address': base_address,
+                    'quote_address': quote_address,
+                    'is_bid': is_buy
+                }
+                
+                self.logger().info(f"Order placed successfully: {order_id} -> {tx_hash} (max_matches: {MAX_ORDERS_TO_MATCH})")
+                tx_hash_for_return = tx_hash
             
-            # Check transaction status if tx_hash contains receipt information
-            if isinstance(tx_hash, dict) and 'status' in tx_hash:
-                tx_status = tx_hash.get('status', 0)
-                tx_hash_value = tx_hash.get('transactionHash', tx_hash)
+            # Check transaction status if tx_hash contains receipt information (legacy support)
+            if isinstance(tx_hash_for_return, dict) and 'status' in tx_hash_for_return:
+                tx_status = tx_hash_for_return.get('status', 0)
+                tx_hash_value = tx_hash_for_return.get('transactionHash', tx_hash_for_return)
                 
                 if tx_status == 0:
                     # Transaction failed on blockchain
                     self.logger().error(f"Transaction failed on blockchain for order {order_id}: {tx_hash_value}")
-                    self.logger().error(f"Transaction receipt: {tx_hash}")
+                    self.logger().error(f"Transaction receipt: {tx_hash_for_return}")
                     raise ValueError(f"Blockchain transaction failed with status 0 for order {order_id}")
                 else:
                     # Transaction succeeded
-                    self.logger().info(f"Order placed successfully: {order_id} -> {tx_hash_value} (max_matches: {MAX_ORDERS_TO_MATCH})")
-                    tx_hash = tx_hash_value  # Use just the hash for return value
-            else:
-                # tx_hash is just a string hash
-                self.logger().info(f"Order placed successfully: {order_id} -> {tx_hash} (max_matches: {MAX_ORDERS_TO_MATCH})")
+                    tx_hash_for_return = tx_hash_value  # Use just the hash for return value
             
             # Return transaction hash as exchange order ID
             timestamp = time.time()
             
-            return tx_hash, timestamp
+            return tx_hash_for_return, timestamp
             
         except Exception as e:
             # Simple error handling following ORDER_FAILURE_HANDLING.md pattern:
@@ -1868,7 +1884,16 @@ class StandardExchange(ExchangePyBase):
             if receipt:
                 if receipt.status == 1:
                     self.logger().info(f"Direct contract order confirmed: {tx_hash_hex}")
-                    return tx_hash_hex
+                    
+                    # Extract order ID from transaction logs for cancellation
+                    order_id = await self._extract_order_id_from_receipt(receipt, w3)
+                    if order_id:
+                        # Return both transaction hash and order ID
+                        return {"tx_hash": tx_hash_hex, "order_id": order_id}
+                    else:
+                        # Fallback to just transaction hash if order ID extraction fails
+                        self.logger().warning(f"Could not extract order ID from transaction {tx_hash_hex}")
+                        return tx_hash_hex
                 else:
                     # Transaction was mined but failed
                     self.logger().error(f"Direct contract order failed on blockchain: {tx_hash_hex}")
@@ -1999,6 +2024,50 @@ class StandardExchange(ExchangePyBase):
             self.logger().warning(f"Could not get receipt for transaction: {tx_hash_hex}")
             raise Exception(f"Transaction confirmation timeout: {tx_hash_hex}")
 
+    async def _extract_order_id_from_receipt(self, receipt, w3) -> int:
+        """
+        Extract the order ID from transaction receipt logs.
+        
+        The OrderPlaced event contains:
+        - pair: address
+        - orderHistoryId: uint16  
+        - id: uint256  <- This is what we need
+        - owner: address
+        - isBid: bool
+        - price: uint256
+        - withoutFee: uint256
+        - placed: uint256
+        """
+        try:
+            from standardweb3 import matching_engine_abi
+            
+            # Create contract instance to decode logs
+            exchange_address = self.get_domain_parameter(self._domain, "standard_exchange_address")
+            exchange_checksum = w3.to_checksum_address(exchange_address)
+            contract = w3.eth.contract(address=exchange_checksum, abi=matching_engine_abi)
+            
+            # Process each log in the receipt
+            for log in receipt.logs:
+                try:
+                    # Try to decode this log as an OrderPlaced event
+                    decoded_log = contract.events.OrderPlaced().process_log(log)
+                    
+                    # Extract the order ID (the 'id' field)
+                    order_id = decoded_log['args']['id']
+                    self.logger().info(f"Extracted order ID from transaction: {order_id}")
+                    return order_id
+                    
+                except Exception as e:
+                    # This log is not an OrderPlaced event, continue to next log
+                    continue
+                    
+            self.logger().warning("No OrderPlaced event found in transaction logs")
+            return None
+            
+        except Exception as e:
+            self.logger().error(f"Error extracting order ID from receipt: {e}")
+            return None
+
     async def _place_cancel(self, order_id: str, tracked_order: InFlightOrder) -> str:
         """
         Cancel an order on the exchange using StandardWeb3 cancel_orders method with on-chain fallback.
@@ -2087,7 +2156,7 @@ class StandardExchange(ExchangePyBase):
                 # Determine if it's a bid (buy order)
                 is_bid = tracked_order.trade_type == TradeType.BUY
                 
-                # We need to extract the order ID from the transaction receipt
+                # We need to get the blockchain order ID from our stored mapping
                 exchange_order_id = tracked_order.exchange_order_id
                 
                 if not exchange_order_id or exchange_order_id.startswith("cancelled_"):
@@ -2097,11 +2166,28 @@ class StandardExchange(ExchangePyBase):
                     self.logger().info(f"Order marked as cancelled locally: {order_id} -> {cancellation_id}")
                     return cancellation_id
                 
-                # Extract order ID from transaction receipt (fallback method)
-                blockchain_order_id = await self._extract_order_id_from_transaction(exchange_order_id)
-                
-                if blockchain_order_id is None:
-                    self.logger().warning(f"Could not extract order ID from transaction {exchange_order_id}, using local cancellation")
+                # Get the blockchain order ID from our stored mapping
+                if order_id in self._order_id_map:
+                    order_mapping = self._order_id_map[order_id]
+                    blockchain_order_id = order_mapping.get('blockchain_order_id')
+                    
+                    self.logger().info(f"Found stored order mapping for {order_id}: blockchain_order_id={blockchain_order_id}")
+                    
+                    # If blockchain_order_id is a transaction hash (string), we need to extract the real order ID
+                    if isinstance(blockchain_order_id, str):
+                        self.logger().info(f"Blockchain order ID is a transaction hash, extracting order ID from receipt")
+                        blockchain_order_id = await self._extract_order_id_from_transaction_receipt(blockchain_order_id)
+                        
+                        if blockchain_order_id is None:
+                            self.logger().warning(f"Could not extract order ID from transaction {exchange_order_id}, using local cancellation")
+                            cancellation_id = f"cancelled_{order_id}"
+                            return cancellation_id
+                    elif not isinstance(blockchain_order_id, int):
+                        self.logger().warning(f"Invalid blockchain order ID type: {type(blockchain_order_id)}, value: {blockchain_order_id}")
+                        cancellation_id = f"cancelled_{order_id}"
+                        return cancellation_id
+                else:
+                    self.logger().warning(f"No order mapping found for {order_id}, using local cancellation")
                     cancellation_id = f"cancelled_{order_id}"
                     return cancellation_id
                 
@@ -2125,6 +2211,62 @@ class StandardExchange(ExchangePyBase):
                 del self._order_id_map[order_id]
             self.logger().info(f"Falling back to local cancellation: {order_id} -> {cancellation_id}")
             return cancellation_id
+
+    async def _extract_order_id_from_transaction_receipt(self, tx_hash: str) -> Optional[int]:
+        """
+        Extract the order ID from a transaction receipt by parsing the OrderPlaced event logs.
+        
+        Args:
+            tx_hash: Transaction hash from order placement
+            
+        Returns:
+            Order ID if found, None otherwise
+        """
+        try:
+            from web3 import Web3
+            from standardweb3 import matching_engine_abi
+            
+            # Connect to Somnia network
+            rpc_url = CONSTANTS.DOMAIN_CONFIG[self._domain]["rpc_url"]
+            w3 = Web3(Web3.HTTPProvider(rpc_url))
+            
+            if not w3.is_connected():
+                self.logger().error("Failed to connect to RPC for order ID extraction")
+                return None
+            
+            # Get transaction receipt
+            receipt = w3.eth.get_transaction_receipt(tx_hash)
+            
+            if not receipt:
+                self.logger().warning(f"No transaction receipt found for {tx_hash}")
+                return None
+            
+            # Create contract instance to decode logs
+            exchange_address = self.get_domain_parameter(self._domain, "standard_exchange_address")
+            exchange_checksum = w3.to_checksum_address(exchange_address)
+            contract = w3.eth.contract(address=exchange_checksum, abi=matching_engine_abi)
+            
+            # Process each log in the receipt
+            for log in receipt.logs:
+                try:
+                    # Try to decode this log as an OrderPlaced event
+                    decoded_log = contract.events.OrderPlaced().process_log(log)
+                    
+                    # Extract the order ID (the 'id' field)
+                    order_id = decoded_log['args']['id']
+                    self.logger().info(f"Extracted order ID from transaction receipt: {order_id} (tx: {tx_hash})")
+                    return order_id
+                    
+                except Exception as e:
+                    # This log is not an OrderPlaced event, continue to next log
+                    continue
+                    
+            self.logger().warning(f"No OrderPlaced event found in transaction logs for {tx_hash}")
+            return None
+            
+        except Exception as e:
+            self.logger().error(f"Error extracting order ID from transaction receipt {tx_hash}: {e}")
+            return None
 
     async def _extract_order_id_from_transaction(self, tx_hash: str) -> Optional[int]:
         """
