@@ -1407,8 +1407,10 @@ class StandardExchange(ExchangePyBase):
                 )
             
             # Store order ID mapping for cancellation
+            # Since n parameter is max orders to match (not unique order ID), 
+            # we'll use transaction hash as the blockchain order identifier
             self._order_id_map[order_id] = {
-                'blockchain_order_id': current_nonce,  # The 'n' parameter is the blockchain order ID
+                'blockchain_order_id': tx_hash,  # Use transaction hash as identifier
                 'base_address': base_address,
                 'quote_address': quote_address,
                 'is_bid': is_buy
@@ -1426,11 +1428,11 @@ class StandardExchange(ExchangePyBase):
                     raise ValueError(f"Blockchain transaction failed with status 0 for order {order_id}")
                 else:
                     # Transaction succeeded
-                    self.logger().info(f"Order placed successfully: {order_id} -> {tx_hash_value} (blockchain_order_id: {current_nonce})")
+                    self.logger().info(f"Order placed successfully: {order_id} -> {tx_hash_value} (max_matches: 20)")
                     tx_hash = tx_hash_value  # Use just the hash for return value
             else:
                 # tx_hash is just a string hash
-                self.logger().info(f"Order placed successfully: {order_id} -> {tx_hash} (blockchain_order_id: {current_nonce})")
+                self.logger().info(f"Order placed successfully: {order_id} -> {tx_hash} (max_matches: 20)")
             
             # Return transaction hash as exchange order ID
             timestamp = time.time()
@@ -1530,12 +1532,13 @@ class StandardExchange(ExchangePyBase):
                         )
                         
                         # Build the limitBuyETH function call using the ABI
-                        # limitBuyETH(address base, uint256 price, bool isMaker, uint32 nonce, address recipient)
+                        # limitBuyETH(address base, uint256 price, bool isMaker, uint32 n, address recipient)
+                        # CRITICAL: n parameter is MAX ORDERS TO MATCH, not nonce!
                         transaction_data = contract.functions.limitBuyETH(
                             w3.to_checksum_address(base_address),    # base token (what we're buying)
                             price_wei,                               # price
                             True,                                    # isMaker
-                            current_nonce,                           # n (order ID)
+                            20,                                      # n (max orders to match, not nonce!)
                             wallet_address                           # recipient
                         ).build_transaction({
                             'from': wallet_address,
@@ -1562,7 +1565,7 @@ class StandardExchange(ExchangePyBase):
                                 w3.to_checksum_address(base_address),    # base token
                                 price_wei,                               # price
                                 True,                                    # isMaker
-                                current_nonce,                           # n (order ID) - uint32
+                                20,                                      # n (max orders to match, not nonce!)
                                 wallet_address                           # recipient
                             ]
                         )
@@ -1589,13 +1592,15 @@ class StandardExchange(ExchangePyBase):
                         )
                         
                         # Build the limitBuy function call using the ABI
+                        # limitBuy(address base, address quote, uint256 price, uint256 quoteAmount, bool isMaker, uint32 n, address recipient)
+                        # CRITICAL: n parameter is MAX ORDERS TO MATCH, not nonce!
                         transaction_data = contract.functions.limitBuy(
                             w3.to_checksum_address(base_address),     # base token
                             w3.to_checksum_address(quote_address),   # quote token
                             price_wei,                               # price
                             quote_amount_wei,                        # quoteAmount
                             True,                                    # isMaker
-                            current_nonce,                           # n (order ID)
+                            20,                                      # n (max orders to match, not nonce!)
                             wallet_address                           # recipient
                         ).build_transaction({
                             'from': wallet_address,
@@ -1614,7 +1619,7 @@ class StandardExchange(ExchangePyBase):
                         # Fallback to manual encoding
                         function_selector = "0x89556190"
                         
-                        # Encode parameters according to ABI (note uint32 for nonce parameter)
+                        # Encode parameters according to ABI (note uint32 for n parameter)
                         encoded_params = w3.codec.encode(
                             ['address', 'address', 'uint256', 'uint256', 'bool', 'uint32', 'address'],
                             [
@@ -1623,7 +1628,7 @@ class StandardExchange(ExchangePyBase):
                                 price_wei,                               # price
                                 quote_amount_wei,                        # quoteAmount
                                 True,                                    # isMaker
-                                current_nonce,                           # n (order ID) - uint32
+                                20,                                      # n (max orders to match, not nonce!)
                                 wallet_address                           # recipient
                             ]
                         )
@@ -1670,12 +1675,13 @@ class StandardExchange(ExchangePyBase):
                         )
                         
                         # Build the limitSellETH function call using the ABI
-                        # limitSellETH(address quote, uint256 price, bool isMaker, uint32 nonce, address recipient)
+                        # limitSellETH(address quote, uint256 price, bool isMaker, uint32 n, address recipient)
+                        # CRITICAL: n parameter is MAX ORDERS TO MATCH, not nonce!
                         transaction_data = contract.functions.limitSellETH(
                             w3.to_checksum_address(quote_address),   # quote token
                             price_wei,                               # price
                             True,                                    # isMaker
-                            current_nonce,                           # n (order ID)
+                            20,                                      # n (max orders to match, not nonce!)
                             wallet_address                           # recipient
                         ).build_transaction({
                             'from': wallet_address,
@@ -1702,7 +1708,7 @@ class StandardExchange(ExchangePyBase):
                                 w3.to_checksum_address(quote_address),   # quote token
                                 price_wei,                               # price
                                 True,                                    # isMaker
-                                current_nonce,                           # n (order ID) - uint32
+                                20,                                      # n (max orders to match, not nonce!)
                                 wallet_address                           # recipient
                             ]
                         )
@@ -1729,13 +1735,15 @@ class StandardExchange(ExchangePyBase):
                         )
                         
                         # Build the limitSell function call using the ABI
+                        # limitSell(address base, address quote, uint256 price, uint256 baseAmount, bool isMaker, uint32 n, address recipient)
+                        # CRITICAL: n parameter is MAX ORDERS TO MATCH, not nonce!
                         transaction_data = contract.functions.limitSell(
                             w3.to_checksum_address(base_address),     # base token
                             w3.to_checksum_address(quote_address),   # quote token  
                             price_wei,                               # price
                             base_amount_wei,                         # baseAmount
                             True,                                    # isMaker
-                            current_nonce,                           # n (order ID)
+                            20,                                      # n (max orders to match, not nonce!)
                             wallet_address                           # recipient
                         ).build_transaction({
                             'from': wallet_address,
@@ -1754,7 +1762,7 @@ class StandardExchange(ExchangePyBase):
                         # Fallback to manual encoding
                         function_selector = w3.keccak(text="limitSell(address,address,uint256,uint256,bool,uint32,address)")[:4].hex()
                         
-                        # Encode parameters according to ABI (note uint32 for nonce parameter)
+                        # Encode parameters according to ABI (note uint32 for n parameter)
                         encoded_params = w3.codec.encode(
                             ['address', 'address', 'uint256', 'uint256', 'bool', 'uint32', 'address'],
                             [
@@ -1763,7 +1771,7 @@ class StandardExchange(ExchangePyBase):
                                 price_wei,                               # price
                                 base_amount_wei,                         # baseAmount
                                 True,                                    # isMaker
-                                current_nonce,                           # n (order ID) - uint32
+                                20,                                      # n (max orders to match, not nonce!)
                                 wallet_address                           # recipient
                             ]
                         )
