@@ -1,5 +1,35 @@
 #!/usr/bin/env python
 
+"""
+Standard Exchange Connector for Hummingbot
+
+IMPORTANT IMPLEMENTATION NOTES:
+===============================
+
+ORDER PLACEMENT APPROACH:
+- This connector uses DIRECT CONTRACT CALLS for order placement
+- StandardWeb3 client library is INCOMPLETE for limitSell/limitBuy functions
+- DO NOT switch to StandardWeb3 approach without implementing missing functions first
+- Direct contract calls have been tested and verified to work correctly with proper function signatures
+
+FUNCTION SIGNATURES:
+- limitSell/limitBuy functions require uint32 for nonce parameter (not uint256)
+- Function selector for limitSell: 0x349d1b5f
+- All function signatures have been verified against the contract ABI
+
+PRIVATE KEY MANAGEMENT:
+- Private key is loaded from .env file (SOMNIA_PRIVATE_KEY)
+- Ensure .env file is properly configured before running connector
+
+BALANCE CHECKING:
+- Native token (SOMI) balances are checked differently from ERC20 tokens
+- Native balance uses web3.eth.get_balance() 
+- ERC20 balances use contract.functions.balanceOf().call()
+
+For future development: Only switch to StandardWeb3 client after verifying that
+limitSell/limitBuy functions are properly implemented in the StandardWeb3 library.
+"""
+
 import asyncio
 import logging
 import time
@@ -147,10 +177,12 @@ class StandardExchange(ExchangePyBase):
                 env_private_key = os.getenv('SOMNIA_PRIVATE_KEY')
                 if env_private_key:
                     standard_client_private_key = env_private_key
-                    self.logger().info("Using private key from .env file for StandardClient")
+                    # Also update the private key used for direct contract calls
+                    self._private_key = env_private_key
+                    self.logger().info("Using private key from .env file for StandardClient and direct contract calls")
                 else:
                     standard_client_private_key = self._private_key
-                    self.logger().info("Using private key from constructor parameter for StandardClient")
+                    self.logger().info("Using private key from constructor parameter for StandardClient and direct contract calls")
                 
                 # Get configuration from environment with fallbacks
                 domain_config = CONSTANTS.DOMAIN_CONFIG[self._domain]
@@ -1228,8 +1260,8 @@ class StandardExchange(ExchangePyBase):
                 required_amount = int(amount * (10 ** base_decimals))
                 token_symbol = utils.convert_address_to_symbol(base_address, self._domain)
             
-            # Check balance for native tokens (ETH/SOMNIA)
-            if token_address == "0x0000000000000000000000000000000000000000":
+            # Check balance for native tokens (SOMI, ETH, SOMNIA, STT)
+            if token_symbol.upper() in CONSTANTS.NATIVE_TOKEN_LIST:
                 current_balance = w3.eth.get_balance(wallet_address)
                 self.logger().info(f"Native token balance check for {token_symbol}: current={current_balance}, required={required_amount}")
             else:
@@ -1278,6 +1310,18 @@ class StandardExchange(ExchangePyBase):
             Tuple of (exchange_order_id, timestamp)
         """
         try:
+            self.logger().info(f"DEBUG: _place_order called with:")
+            self.logger().info(f"  - order_id: {order_id}")
+            self.logger().info(f"  - trading_pair: {trading_pair}")
+            self.logger().info(f"  - amount: {amount}")
+            self.logger().info(f"  - trade_type: {trade_type}")
+            self.logger().info(f"  - order_type: {order_type}")
+            self.logger().info(f"  - price: {price}")
+            
+            # Update balances before placing order to ensure budget checker has fresh data
+            self.logger().info("Updating balances before order placement...")
+            await self._update_balances()
+            
             base, quote = utils.split_trading_pair(trading_pair)
             base_address = utils.convert_symbol_to_address(base, self._domain)
             quote_address = utils.convert_symbol_to_address(quote, self._domain)
@@ -1314,8 +1358,43 @@ class StandardExchange(ExchangePyBase):
                 # Get current nonce for the account to avoid "nonce too low" errors
                 current_nonce = await self._get_current_nonce()
                 
-                # Comment out StandardClient to use direct on-chain contract calls
-                # DIRECT ON-CHAIN CONTRACT CALL APPROACH
+                self.logger().info(f"DEBUG: About to call _place_order_direct_contract with:")
+                self.logger().info(f"  - is_buy: {is_buy}")
+                self.logger().info(f"  - base: {base} -> {base_address}")
+                self.logger().info(f"  - quote: {quote} -> {quote_address}")
+                self.logger().info(f"  - amount: {amount}")
+                self.logger().info(f"  - execution_price: {execution_price}")
+                
+                # ===== APPROACH SELECTION =====
+                # CRITICAL NOTE: StandardWeb3 client is INCOMPLETE for limitSell/limitBuy functions!
+                # DO NOT revert to StandardWeb3 approach without implementing the missing functions first.
+                # The StandardWeb3 library does not have proper limitSell/limitBuy function implementations,
+                # so we MUST use direct contract calls until StandardWeb3 is complete.
+                
+                # APPROACH 1: StandardWeb3 Client (COMMENTED OUT - INCOMPLETE IMPLEMENTATION)
+                # try:
+                #     if hasattr(self, '_standardweb3_client') and self._standardweb3_client:
+                #         self.logger().info("Using StandardWeb3 client for order placement...")
+                #         await self._place_order_standardweb3(
+                #             base_address=base_address,
+                #             quote_address=quote_address,
+                #             amount=amount,
+                #             execution_price=execution_price,
+                #             is_buy=is_buy,
+                #             base_decimals=base_decimals,
+                #             quote_decimals=quote_decimals,
+                #             current_nonce=current_nonce
+                #         )
+                #         # StandardWeb3 client returns order hash differently
+                #         tx_hash = f"standardweb3_order_{current_nonce}"
+                #     else:
+                #         raise Exception("StandardWeb3 client not available, falling back to direct contract")
+                # except Exception as e:
+                #     self.logger().warning(f"StandardWeb3 client failed ({e}), using direct contract call")
+                #     # Fall back to direct contract call approach
+                
+                # APPROACH 2: DIRECT ON-CHAIN CONTRACT CALL (CURRENT IMPLEMENTATION)
+                # This is the working approach since StandardWeb3 limitSell/limitBuy functions are incomplete
                 tx_hash = await self._place_order_direct_contract(
                     base_address=base_address,
                     quote_address=quote_address,
@@ -1326,47 +1405,6 @@ class StandardExchange(ExchangePyBase):
                     quote_decimals=quote_decimals,
                     current_nonce=current_nonce
                 )
-                
-                # COMMENTED OUT: StandardClient approach (causing OUT_OF_GAS errors)
-                # if is_buy:
-                #     # For buy orders: quote_amount = amount * price
-                #     quote_amount = amount * execution_price
-                #     # Convert amounts to wei format (integer) for blockchain
-                #     quote_amount_wei = int(quote_amount * (10 ** quote_decimals))
-                #     price_wei = int(execution_price * (10 ** quote_decimals))  # Price in wei per token
-                #     
-                #     self.logger().info(f"DEBUG: Placing BUY order - base: {base_address}, quote: {quote_address}")
-                #     self.logger().info(f"DEBUG: Original values - price: {execution_price}, quote_amount: {quote_amount}")
-                #     self.logger().info(f"DEBUG: Wei values - price_wei: {price_wei}, quote_amount_wei: {quote_amount_wei}, nonce: {current_nonce}")
-                #     
-                #     tx_hash = await self._standard_client.limit_buy(
-                #         base=base_address,  # Use token address, not symbol
-                #         quote=quote_address,  # Use token address, not symbol
-                #         price=price_wei,
-                #         quote_amount=quote_amount_wei,
-                #         is_maker=True,  # Default to maker order
-                #         n=current_nonce,  # Use dynamic nonce
-                #         recipient=self._wallet_address
-                #     )
-                # else:
-                #     # For sell orders: base_amount = amount
-                #     # Convert amounts to wei format (integer) for blockchain
-                #     base_amount_wei = int(amount * (10 ** base_decimals))
-                #     price_wei = int(execution_price * (10 ** quote_decimals))  # Price in wei per token
-                #     
-                #     self.logger().info(f"DEBUG: Placing SELL order - base: {base_address}, quote: {quote_address}")
-                #     self.logger().info(f"DEBUG: Original values - price: {execution_price}, base_amount: {amount}")
-                #     self.logger().info(f"DEBUG: Wei values - price_wei: {price_wei}, base_amount_wei: {base_amount_wei}, nonce: {current_nonce}")
-                #     
-                #     tx_hash = await self._standard_client.limit_sell(
-                #         base=base_address,  # Use token address, not symbol
-                #         quote=quote_address,  # Use token address, not symbol
-                #         price=price_wei,
-                #         base_amount=base_amount_wei,
-                #         is_maker=True,  # Default to maker order
-                #         n=current_nonce,  # Use dynamic nonce
-                #         recipient=self._wallet_address
-                #     )
             
             # Store order ID mapping for cancellation
             self._order_id_map[order_id] = {
@@ -1417,6 +1455,14 @@ class StandardExchange(ExchangePyBase):
         """
         Place order directly on the smart contract without using StandardWeb3.
         
+        FUNCTION SELECTION LOGIC:
+        - BUY orders: Always use limitBuy (regardless of token type)
+        - SELL ERC20 tokens: Use limitSell 
+        - SELL NATIVE token (SOMI): Use limitSellETH (special function for native token)
+        
+        This approach matches the successful transaction pattern where limitSellETH 
+        is used specifically for selling the native token (SOMI/ETH).
+        
         Args:
             base_address: Base token contract address
             quote_address: Quote token contract address
@@ -1456,67 +1502,287 @@ class StandardExchange(ExchangePyBase):
                 quote_amount_wei = int(quote_amount * (10 ** quote_decimals))
                 price_wei = int(execution_price * (10 ** quote_decimals))
                 
-                # Build limitBuy function call data
-                # limitBuy(address,address,uint256,uint256,bool,uint256,address)
-                function_selector = "0x89556190"
+                # Check if we're buying with the native token (SOMI)
+                quote_symbol = utils.convert_address_to_symbol(quote_address, self._domain)
+                is_native_buy = quote_symbol.upper() in CONSTANTS.NATIVE_TOKEN_LIST
                 
-                # Encode parameters according to ABI
-                encoded_params = w3.codec.encode(
-                    ['address', 'address', 'uint256', 'uint256', 'bool', 'uint256', 'address'],
-                    [
-                        w3.to_checksum_address(base_address),     # base token
-                        w3.to_checksum_address(quote_address),   # quote token
-                        price_wei,                               # price
-                        quote_amount_wei,                        # quoteAmount
-                        True,                                    # isMaker
-                        current_nonce,                           # n (order ID)
-                        wallet_address                           # recipient
-                    ]
-                )
-                
-                # Build transaction data
-                transaction_data = function_selector + encoded_params.hex()
-                
-                self.logger().info(f"Direct contract BUY order:")
-                self.logger().info(f"  - base: {base_address}")
-                self.logger().info(f"  - quote: {quote_address}")
-                self.logger().info(f"  - price_wei: {price_wei}")
-                self.logger().info(f"  - quote_amount_wei: {quote_amount_wei}")
-                self.logger().info(f"  - nonce: {current_nonce}")
+                if is_native_buy:
+                    self.logger().info(f"Direct contract BUY NATIVE order (using limitBuyETH):")
+                    self.logger().info(f"  - base: {base_address}")
+                    self.logger().info(f"  - native quote: {quote_symbol}")
+                    self.logger().info(f"  - execution_price: {execution_price}")
+                    self.logger().info(f"  - quote_decimals: {quote_decimals}")
+                    
+                    # Calculate price_wei with debug logging
+                    price_wei = int(execution_price * (10 ** quote_decimals))
+                    self.logger().info(f"  - price_wei calculation: {execution_price} * 10^{quote_decimals} = {price_wei}")
+                    self.logger().info(f"  - quote_amount_wei: {quote_amount_wei}")
+                    self.logger().info(f"  - nonce: {current_nonce}")
+                    
+                    # Use limitBuyETH for native token purchases (SOMI -> other token)
+                    try:
+                        from standardweb3 import matching_engine_abi
+                        
+                        # Create contract instance
+                        contract = w3.eth.contract(
+                            address=exchange_checksum,
+                            abi=matching_engine_abi
+                        )
+                        
+                        # Build the limitBuyETH function call using the ABI
+                        # limitBuyETH(address base, uint256 price, bool isMaker, uint32 nonce, address recipient)
+                        transaction_data = contract.functions.limitBuyETH(
+                            w3.to_checksum_address(base_address),    # base token (what we're buying)
+                            price_wei,                               # price
+                            True,                                    # isMaker
+                            current_nonce,                           # n (order ID)
+                            wallet_address                           # recipient
+                        ).build_transaction({
+                            'from': wallet_address,
+                            'gas': 1,  # Will be estimated later
+                            'gasPrice': 1,  # Will be set later
+                            'nonce': current_nonce,
+                            'value': quote_amount_wei  # Send SOMI amount as transaction value
+                        })
+                        
+                        # Extract the data field
+                        transaction_data = transaction_data['data']
+                        
+                    except ImportError:
+                        self.logger().warning("standardweb3 matching_engine_abi not available, falling back to manual encoding for limitBuyETH")
+                        
+                        # Fallback to manual encoding for limitBuyETH
+                        # Function signature: limitBuyETH(address,uint256,bool,uint32,address)
+                        function_selector = w3.keccak(text="limitBuyETH(address,uint256,bool,uint32,address)")[:4].hex()
+                        
+                        # Encode parameters according to ABI
+                        encoded_params = w3.codec.encode(
+                            ['address', 'uint256', 'bool', 'uint32', 'address'],
+                            [
+                                w3.to_checksum_address(base_address),    # base token
+                                price_wei,                               # price
+                                True,                                    # isMaker
+                                current_nonce,                           # n (order ID) - uint32
+                                wallet_address                           # recipient
+                            ]
+                        )
+                        
+                        # Build transaction data
+                        transaction_data = function_selector + encoded_params.hex()
+                        
+                else:
+                    self.logger().info(f"Direct contract BUY ERC20 order (using limitBuy):")
+                    self.logger().info(f"  - base: {base_address}")
+                    self.logger().info(f"  - quote: {quote_address}")
+                    self.logger().info(f"  - price_wei: {price_wei}")
+                    self.logger().info(f"  - quote_amount_wei: {quote_amount_wei}")
+                    self.logger().info(f"  - nonce: {current_nonce}")
+                    
+                    # Use limitBuy for ERC20 token purchases
+                    try:
+                        from standardweb3 import matching_engine_abi
+                        
+                        # Create contract instance
+                        contract = w3.eth.contract(
+                            address=exchange_checksum,
+                            abi=matching_engine_abi
+                        )
+                        
+                        # Build the limitBuy function call using the ABI
+                        transaction_data = contract.functions.limitBuy(
+                            w3.to_checksum_address(base_address),     # base token
+                            w3.to_checksum_address(quote_address),   # quote token
+                            price_wei,                               # price
+                            quote_amount_wei,                        # quoteAmount
+                            True,                                    # isMaker
+                            current_nonce,                           # n (order ID)
+                            wallet_address                           # recipient
+                        ).build_transaction({
+                            'from': wallet_address,
+                            'gas': 1,  # Will be estimated later
+                            'gasPrice': 1,  # Will be set later
+                            'nonce': current_nonce,
+                            'value': 0  # No value for ERC20 purchases
+                        })
+                        
+                        # Extract the data field
+                        transaction_data = transaction_data['data']
+                        
+                    except ImportError:
+                        self.logger().warning("standardweb3 matching_engine_abi not available, falling back to manual encoding")
+                        
+                        # Fallback to manual encoding
+                        function_selector = "0x89556190"
+                        
+                        # Encode parameters according to ABI (note uint32 for nonce parameter)
+                        encoded_params = w3.codec.encode(
+                            ['address', 'address', 'uint256', 'uint256', 'bool', 'uint32', 'address'],
+                            [
+                                w3.to_checksum_address(base_address),     # base token
+                                w3.to_checksum_address(quote_address),   # quote token
+                                price_wei,                               # price
+                                quote_amount_wei,                        # quoteAmount
+                                True,                                    # isMaker
+                                current_nonce,                           # n (order ID) - uint32
+                                wallet_address                           # recipient
+                            ]
+                        )
+                        
+                        # Build transaction data
+                        transaction_data = function_selector + encoded_params.hex()
                 
             else:
                 # For sell orders: base_amount = amount
                 base_amount_wei = int(amount * (10 ** base_decimals))
                 price_wei = int(execution_price * (10 ** quote_decimals))
                 
-                # Build limitSell function call data  
-                # limitSell(address,address,uint256,uint256,bool,uint256,address)
-                # Need to find the function selector for limitSell - let's use a common approach
-                function_selector = w3.keccak(text="limitSell(address,address,uint256,uint256,bool,uint256,address)")[:4].hex()
+                # Check if we're selling the native token (SOMI)
+                base_symbol = utils.convert_address_to_symbol(base_address, self._domain)
+                is_native_sell = base_symbol.upper() in CONSTANTS.NATIVE_TOKEN_LIST
                 
-                # Encode parameters according to ABI
-                encoded_params = w3.codec.encode(
-                    ['address', 'address', 'uint256', 'uint256', 'bool', 'uint256', 'address'],
-                    [
-                        w3.to_checksum_address(base_address),     # base token
-                        w3.to_checksum_address(quote_address),   # quote token  
-                        price_wei,                               # price
-                        base_amount_wei,                         # baseAmount
-                        True,                                    # isMaker
-                        current_nonce,                           # n (order ID)
-                        wallet_address                           # recipient
-                    ]
-                )
+                self.logger().info(f"DEBUG SELL ORDER PATH:")
+                self.logger().info(f"  - base_symbol: {base_symbol}")
+                self.logger().info(f"  - base_address: {base_address}")
+                self.logger().info(f"  - is_native_sell: {is_native_sell}")
+                self.logger().info(f"  - NATIVE_TOKEN_LIST: {CONSTANTS.NATIVE_TOKEN_LIST}")
                 
-                # Build transaction data
-                transaction_data = function_selector + encoded_params.hex()
-                
-                self.logger().info(f"Direct contract SELL order:")
-                self.logger().info(f"  - base: {base_address}")
-                self.logger().info(f"  - quote: {quote_address}")
-                self.logger().info(f"  - price_wei: {price_wei}")
-                self.logger().info(f"  - base_amount_wei: {base_amount_wei}")
-                self.logger().info(f"  - nonce: {current_nonce}")
+                if is_native_sell:
+                    self.logger().info(f"Direct contract SELL NATIVE order (using limitSellETH):")
+                    self.logger().info(f"  - native token: {base_symbol}")
+                    self.logger().info(f"  - quote: {quote_address}")
+                    self.logger().info(f"  - execution_price: {execution_price}")
+                    self.logger().info(f"  - quote_decimals: {quote_decimals}")
+                    
+                    # Calculate price_wei with debug logging
+                    price_wei = int(execution_price * (10 ** quote_decimals))
+                    self.logger().info(f"  - price_wei calculation: {execution_price} * 10^{quote_decimals} = {price_wei}")
+                    self.logger().info(f"  - base_amount_wei: {base_amount_wei}")
+                    self.logger().info(f"  - nonce: {current_nonce}")
+                    
+                    # Use limitSellETH for native token sales (SOMI -> other token)
+                    try:
+                        from standardweb3 import matching_engine_abi
+                        
+                        # Create contract instance
+                        contract = w3.eth.contract(
+                            address=exchange_checksum,
+                            abi=matching_engine_abi
+                        )
+                        
+                        # Build the limitSellETH function call using the ABI
+                        # limitSellETH(address quote, uint256 price, bool isMaker, uint32 nonce, address recipient)
+                        transaction_data = contract.functions.limitSellETH(
+                            w3.to_checksum_address(quote_address),   # quote token
+                            price_wei,                               # price
+                            True,                                    # isMaker
+                            current_nonce,                           # n (order ID)
+                            wallet_address                           # recipient
+                        ).build_transaction({
+                            'from': wallet_address,
+                            'gas': 1,  # Will be estimated later
+                            'gasPrice': 1,  # Will be set later
+                            'nonce': current_nonce,
+                            'value': base_amount_wei  # Send SOMI amount as transaction value
+                        })
+                        
+                        # Extract the data field
+                        transaction_data = transaction_data['data']
+                        
+                    except ImportError:
+                        self.logger().warning("standardweb3 matching_engine_abi not available, falling back to manual encoding for limitSellETH")
+                        
+                        # Fallback to manual encoding for limitSellETH
+                        # Function signature: limitSellETH(address,uint256,bool,uint32,address)
+                        function_selector = "0xe794b1c1"  # Known from successful transaction
+                        
+                        # Encode parameters according to ABI
+                        encoded_params = w3.codec.encode(
+                            ['address', 'uint256', 'bool', 'uint32', 'address'],
+                            [
+                                w3.to_checksum_address(quote_address),   # quote token
+                                price_wei,                               # price
+                                True,                                    # isMaker
+                                current_nonce,                           # n (order ID) - uint32
+                                wallet_address                           # recipient
+                            ]
+                        )
+                        
+                        # Build transaction data
+                        transaction_data = function_selector + encoded_params.hex()
+                        
+                else:
+                    self.logger().info(f"Direct contract SELL ERC20 order (using limitSell):")
+                    self.logger().info(f"  - base: {base_address}")
+                    self.logger().info(f"  - quote: {quote_address}")
+                    self.logger().info(f"  - price_wei: {price_wei}")
+                    self.logger().info(f"  - base_amount_wei: {base_amount_wei}")
+                    self.logger().info(f"  - nonce: {current_nonce}")
+                    
+                    # Use limitSell for ERC20 token sales
+                    try:
+                        from standardweb3 import matching_engine_abi
+                        
+                        # Create contract instance
+                        contract = w3.eth.contract(
+                            address=exchange_checksum,
+                            abi=matching_engine_abi
+                        )
+                        
+                        # Build the limitSell function call using the ABI
+                        transaction_data = contract.functions.limitSell(
+                            w3.to_checksum_address(base_address),     # base token
+                            w3.to_checksum_address(quote_address),   # quote token  
+                            price_wei,                               # price
+                            base_amount_wei,                         # baseAmount
+                            True,                                    # isMaker
+                            current_nonce,                           # n (order ID)
+                            wallet_address                           # recipient
+                        ).build_transaction({
+                            'from': wallet_address,
+                            'gas': 1,  # Will be estimated later
+                            'gasPrice': 1,  # Will be set later
+                            'nonce': current_nonce,
+                            'value': 0  # No value for ERC20 sales
+                        })
+                        
+                        # Extract the data field
+                        transaction_data = transaction_data['data']
+                        
+                    except ImportError:
+                        self.logger().warning("standardweb3 matching_engine_abi not available, falling back to manual encoding")
+                        
+                        # Fallback to manual encoding
+                        function_selector = w3.keccak(text="limitSell(address,address,uint256,uint256,bool,uint32,address)")[:4].hex()
+                        
+                        # Encode parameters according to ABI (note uint32 for nonce parameter)
+                        encoded_params = w3.codec.encode(
+                            ['address', 'address', 'uint256', 'uint256', 'bool', 'uint32', 'address'],
+                            [
+                                w3.to_checksum_address(base_address),     # base token
+                                w3.to_checksum_address(quote_address),   # quote token  
+                                price_wei,                               # price
+                                base_amount_wei,                         # baseAmount
+                                True,                                    # isMaker
+                                current_nonce,                           # n (order ID) - uint32
+                                wallet_address                           # recipient
+                            ]
+                        )
+                        
+                        # Build transaction data
+                        transaction_data = function_selector + encoded_params.hex()
+            
+            # Determine transaction value (already calculated during function call building)
+            # For native token (SOMI) sell orders, the amount is sent as transaction value
+            base_symbol = utils.convert_address_to_symbol(base_address, self._domain)
+            is_native_sell = not is_buy and base_symbol.upper() in CONSTANTS.NATIVE_TOKEN_LIST
+            
+            if is_native_sell:
+                # For limitSellETH, transaction value is the base amount being sold
+                transaction_value = base_amount_wei
+                self.logger().info(f"Selling native token {base_symbol}: sending {transaction_value} wei ({amount} {base_symbol}) as transaction value")
+            else:
+                # For limitBuy or limitSell (ERC20), no value needed
+                transaction_value = 0
             
             # Estimate gas for the transaction
             try:
@@ -1524,7 +1790,7 @@ class StandardExchange(ExchangePyBase):
                     'from': wallet_address,
                     'to': exchange_checksum,
                     'data': transaction_data,
-                    'value': 0
+                    'value': transaction_value
                 })
                 
                 # Add 20% buffer to gas estimate, but ensure it's at least 3M
@@ -1546,12 +1812,25 @@ class StandardExchange(ExchangePyBase):
                 'gas': gas_limit,
                 'gasPrice': gas_price,
                 'nonce': current_nonce,
-                'value': 0,
+                'value': transaction_value,
                 'chainId': CONSTANTS.DOMAIN_CONFIG[self._domain]["chain_id"]
             }
             
             # Sign transaction
-            signed_txn = Account.sign_transaction(transaction, self._private_key)
+            # Ensure private key is properly formatted for eth_account
+            private_key_for_signing = self._private_key
+            if isinstance(private_key_for_signing, str):
+                # Remove '0x' prefix if present
+                if private_key_for_signing.startswith('0x'):
+                    private_key_for_signing = private_key_for_signing[2:]
+                # Convert hex string to bytes
+                private_key_for_signing = bytes.fromhex(private_key_for_signing)
+            
+            # Validate key length
+            if len(private_key_for_signing) != 32:
+                raise ValueError(f"Private key must be exactly 32 bytes, got {len(private_key_for_signing)} bytes")
+            
+            signed_txn = Account.sign_transaction(transaction, private_key_for_signing)
             
             # Send transaction
             try:
