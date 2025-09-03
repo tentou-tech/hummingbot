@@ -44,6 +44,7 @@ from hummingbot.connector.exchange.standard import (
     standard_utils as utils,
     standard_web_utils as web_utils,
 )
+from hummingbot.connector.exchange.standard.standard_constants import MAX_ORDERS_TO_MATCH
 from hummingbot.connector.exchange.standard.standard_api_order_book_data_source import StandardAPIOrderBookDataSource
 from hummingbot.connector.exchange.standard.standard_api_user_stream_data_source import StandardAPIUserStreamDataSource
 from hummingbot.connector.exchange.standard.standard_auth import StandardAuth
@@ -1428,11 +1429,11 @@ class StandardExchange(ExchangePyBase):
                     raise ValueError(f"Blockchain transaction failed with status 0 for order {order_id}")
                 else:
                     # Transaction succeeded
-                    self.logger().info(f"Order placed successfully: {order_id} -> {tx_hash_value} (max_matches: 20)")
+                    self.logger().info(f"Order placed successfully: {order_id} -> {tx_hash_value} (max_matches: {MAX_ORDERS_TO_MATCH})")
                     tx_hash = tx_hash_value  # Use just the hash for return value
             else:
                 # tx_hash is just a string hash
-                self.logger().info(f"Order placed successfully: {order_id} -> {tx_hash} (max_matches: 20)")
+                self.logger().info(f"Order placed successfully: {order_id} -> {tx_hash} (max_matches: {MAX_ORDERS_TO_MATCH})")
             
             # Return transaction hash as exchange order ID
             timestamp = time.time()
@@ -1538,7 +1539,7 @@ class StandardExchange(ExchangePyBase):
                             w3.to_checksum_address(base_address),    # base token (what we're buying)
                             price_wei,                               # price
                             True,                                    # isMaker
-                            20,                                      # n (max orders to match, not nonce!)
+                            MAX_ORDERS_TO_MATCH,                     # n (max orders to match, not nonce!)
                             wallet_address                           # recipient
                         ).build_transaction({
                             'from': wallet_address,
@@ -1565,7 +1566,7 @@ class StandardExchange(ExchangePyBase):
                                 w3.to_checksum_address(base_address),    # base token
                                 price_wei,                               # price
                                 True,                                    # isMaker
-                                20,                                      # n (max orders to match, not nonce!)
+                                MAX_ORDERS_TO_MATCH,                     # n (max orders to match, not nonce!)
                                 wallet_address                           # recipient
                             ]
                         )
@@ -1600,7 +1601,7 @@ class StandardExchange(ExchangePyBase):
                             price_wei,                               # price
                             quote_amount_wei,                        # quoteAmount
                             True,                                    # isMaker
-                            20,                                      # n (max orders to match, not nonce!)
+                            MAX_ORDERS_TO_MATCH,                     # n (max orders to match, not nonce!)
                             wallet_address                           # recipient
                         ).build_transaction({
                             'from': wallet_address,
@@ -1628,7 +1629,7 @@ class StandardExchange(ExchangePyBase):
                                 price_wei,                               # price
                                 quote_amount_wei,                        # quoteAmount
                                 True,                                    # isMaker
-                                20,                                      # n (max orders to match, not nonce!)
+                                MAX_ORDERS_TO_MATCH,                     # n (max orders to match, not nonce!)
                                 wallet_address                           # recipient
                             ]
                         )
@@ -1681,7 +1682,7 @@ class StandardExchange(ExchangePyBase):
                             w3.to_checksum_address(quote_address),   # quote token
                             price_wei,                               # price
                             True,                                    # isMaker
-                            20,                                      # n (max orders to match, not nonce!)
+                            MAX_ORDERS_TO_MATCH,                     # n (max orders to match, not nonce!)
                             wallet_address                           # recipient
                         ).build_transaction({
                             'from': wallet_address,
@@ -1708,7 +1709,7 @@ class StandardExchange(ExchangePyBase):
                                 w3.to_checksum_address(quote_address),   # quote token
                                 price_wei,                               # price
                                 True,                                    # isMaker
-                                20,                                      # n (max orders to match, not nonce!)
+                                MAX_ORDERS_TO_MATCH,                     # n (max orders to match, not nonce!)
                                 wallet_address                           # recipient
                             ]
                         )
@@ -1743,7 +1744,7 @@ class StandardExchange(ExchangePyBase):
                             price_wei,                               # price
                             base_amount_wei,                         # baseAmount
                             True,                                    # isMaker
-                            20,                                      # n (max orders to match, not nonce!)
+                            MAX_ORDERS_TO_MATCH,                     # n (max orders to match, not nonce!)
                             wallet_address                           # recipient
                         ).build_transaction({
                             'from': wallet_address,
@@ -1771,7 +1772,7 @@ class StandardExchange(ExchangePyBase):
                                 price_wei,                               # price
                                 base_amount_wei,                         # baseAmount
                                 True,                                    # isMaker
-                                20,                                      # n (max orders to match, not nonce!)
+                                MAX_ORDERS_TO_MATCH,                     # n (max orders to match, not nonce!)
                                 wallet_address                           # recipient
                             ]
                         )

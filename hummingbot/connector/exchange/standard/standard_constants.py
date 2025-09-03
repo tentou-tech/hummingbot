@@ -17,6 +17,9 @@ EXCHANGE_NAME = "standard"
 # Get domain from .env file with fallback to mainnet
 DEFAULT_DOMAIN = os.getenv("SOMNIA_DOMAIN", "mainnet")
 
+# Order execution parameters
+MAX_ORDERS_TO_MATCH = 20  # Maximum number of existing orders to match in limitSell/limitBuy functions
+
 # Domain-specific configurations
 DOMAIN_CONFIG = {
     "mainnet": {
