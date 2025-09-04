@@ -950,9 +950,9 @@ class StandardExchange(ExchangePyBase):
                 "minQty": str(CONSTANTS.MIN_ORDER_SIZE),
                 "maxQty": str(CONSTANTS.MAX_ORDER_SIZE),
                 "stepSize": str(Decimal("1e-{}".format(base_decimals))),
-                "minPrice": str(Decimal("1e-{}".format(quote_decimals))),
+                "minPrice": str(Decimal("1e-{}".format(CONSTANTS.CONTRACT_PRICE_DECIMALS))),  # Use contract precision
                 "maxPrice": str(CONSTANTS.MAX_ORDER_SIZE),
-                "tickSize": str(Decimal("1e-{}".format(quote_decimals))),
+                "tickSize": str(Decimal("1e-{}".format(CONSTANTS.CONTRACT_PRICE_DECIMALS))),  # Use contract precision
                 "minNotional": str(CONSTANTS.MIN_ORDER_SIZE),
                 "status": "TRADING",
             }
@@ -1552,7 +1552,7 @@ class StandardExchange(ExchangePyBase):
                 # For buy orders: quote_amount = amount * price
                 quote_amount = amount * execution_price
                 quote_amount_wei = int(quote_amount * (10 ** quote_decimals))
-                price_wei = int(execution_price * (10 ** quote_decimals))
+                price_wei = int(execution_price * CONSTANTS.DENOM)  # Use contract's price precision
                 
                 # Check if we're buying with the native token (SOMI)
                 quote_symbol = utils.convert_address_to_symbol(quote_address, self._domain)
@@ -1565,9 +1565,9 @@ class StandardExchange(ExchangePyBase):
                     self.logger().info(f"  - execution_price: {execution_price}")
                     self.logger().info(f"  - quote_decimals: {quote_decimals}")
                     
-                    # Calculate price_wei with debug logging
-                    price_wei = int(execution_price * (10 ** quote_decimals))
-                    self.logger().info(f"  - price_wei calculation: {execution_price} * 10^{quote_decimals} = {price_wei}")
+                    # Calculate price_wei with correct contract precision
+                    price_wei = int(execution_price * CONSTANTS.DENOM)
+                    self.logger().info(f"  - price_wei calculation: {execution_price} * {CONSTANTS.DENOM} = {price_wei}")
                     self.logger().info(f"  - quote_amount_wei: {quote_amount_wei}")
                     self.logger().info(f"  - nonce: {current_nonce}")
                     
@@ -1701,7 +1701,7 @@ class StandardExchange(ExchangePyBase):
             else:
                 # For sell orders: base_amount = amount
                 base_amount_wei = int(amount * (10 ** base_decimals))
-                price_wei = int(execution_price * (10 ** quote_decimals))
+                price_wei = int(execution_price * CONSTANTS.DENOM)  # Use contract's price precision
                 
                 # Check if we're selling the native token (SOMI)
                 base_symbol = utils.convert_address_to_symbol(base_address, self._domain)
@@ -1720,9 +1720,9 @@ class StandardExchange(ExchangePyBase):
                     self.logger().info(f"  - execution_price: {execution_price}")
                     self.logger().info(f"  - quote_decimals: {quote_decimals}")
                     
-                    # Calculate price_wei with debug logging
-                    price_wei = int(execution_price * (10 ** quote_decimals))
-                    self.logger().info(f"  - price_wei calculation: {execution_price} * 10^{quote_decimals} = {price_wei}")
+                    # Calculate price_wei with correct contract precision
+                    price_wei = int(execution_price * CONSTANTS.DENOM)
+                    self.logger().info(f"  - price_wei calculation: {execution_price} * {CONSTANTS.DENOM} = {price_wei}")
                     self.logger().info(f"  - base_amount_wei: {base_amount_wei}")
                     self.logger().info(f"  - nonce: {current_nonce}")
                     

@@ -174,7 +174,12 @@ TOKEN_DECIMALS = {
     "OSMO": 18, 
     "TOKEN1": 18,
     "TOKEN2": 18,
+    "SOMI": 18,  # SOMI token decimals
 }
+
+# Contract precision constants
+CONTRACT_PRICE_DECIMALS = 8  # Based on DENOM constant (100000000 = 10^8) from matching engine
+DENOM = 100000000  # Price precision denominator from the matching engine contract
 
 # REST API endpoints (replacing GraphQL)
 REST_API_ENDPOINTS = {
