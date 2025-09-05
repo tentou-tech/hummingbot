@@ -132,7 +132,7 @@ class StandardExchange(ExchangePyBase):
         domain: str = CONSTANTS.DEFAULT_DOMAIN,
     ):
         self.logger().info("=== DEBUG: StandardExchange.__init__ STARTING ===")
-        self.logger().info(f"DEBUG: Constructor called with parameters:")
+        self.logger().info("DEBUG: Constructor called with parameters:")
         self.logger().info(f"  - trading_pairs = {trading_pairs} (type: {type(trading_pairs)})")
         self.logger().info(f"  - trading_required = {trading_required} (type: {type(trading_required)})")
         self.logger().info(f"  - somnia_wallet_address = {somnia_wallet_address}")
@@ -152,8 +152,9 @@ class StandardExchange(ExchangePyBase):
         self._trading_required = trading_required
         self._trading_pairs = trading_pairs or []
 
-        self.logger().info(f"Using domain: {self._domain} - Token addresses and API endpoints will be specific to this domain.")
-        self.logger().info(f"DEBUG: After assignment:")
+        self.logger().info("Using domain: {self._domain} - Token addresses and API endpoints "
+                           f"will be specific to this domain.")
+        self.logger().info("DEBUG: After assignment:")
         self.logger().info(f"  - self._trading_pairs = {self._trading_pairs} (len: {len(self._trading_pairs)})")
         self.logger().info(f"  - self._trading_required = {self._trading_required}")
 
@@ -199,8 +200,9 @@ class StandardExchange(ExchangePyBase):
                 websocket_url = domain_config["websocket_url"]
                 matching_engine_address = domain_config["standard_exchange_address"]
 
-                self.logger().info(f"StandardWeb3 config - API: {api_url}, WS: {websocket_url}, ME: {matching_engine_address}")
-                self.logger().info(f"Using private key length: {len(standard_client_private_key)} characters")
+                self.logger().info(
+                    f"StandardWeb3 config - API: {api_url}, WS: {websocket_url}, ME: {matching_engine_address}")
+                self.logger().info("Using private key length: {len(standard_client_private_key)} characters")
 
                 # Initialize StandardClient without networkName parameter
                 self._standard_client = StandardClient(
@@ -345,7 +347,7 @@ class StandardExchange(ExchangePyBase):
             self.logger().info("DEBUG: check_network() returning CONNECTED")
             return NetworkStatus.CONNECTED
         except Exception as e:
-            self.logger().error(f"DEBUG: Exception in check_network(): {e}")
+            self.logger().error("DEBUG: Exception in check_network(): {e}")
             self.logger().error(f"Network check failed: {e}")
             return NetworkStatus.NOT_CONNECTED
 
@@ -371,7 +373,7 @@ class StandardExchange(ExchangePyBase):
 
             self.logger().info("Somnia network started successfully")
         except Exception as e:
-            self.logger().error(f"DEBUG: Exception in start_network(): {e}")
+            self.logger().error("DEBUG: Exception in start_network(): {e}")
             self.logger().error(f"Failed to start Somnia network: {e}")
             self.logger().exception("Full traceback:")
             # Don't raise - let the system continue
@@ -393,15 +395,15 @@ class StandardExchange(ExchangePyBase):
             # Get available trading pairs and market data
             self.logger().info("DEBUG: About to call _get_symbols()")
             symbols = await self._get_symbols()
-            self.logger().info(f"DEBUG: _get_symbols() returned {len(symbols)} symbols")
+            self.logger().info("DEBUG: _get_symbols() returned {len(symbols)} symbols")
 
             self.logger().info("DEBUG: About to call _get_contracts()")
             contracts = await self._get_contracts()
-            self.logger().info(f"DEBUG: _get_contracts() returned {len(contracts)} contracts")
+            self.logger().info("DEBUG: _get_contracts() returned {len(contracts)} contracts")
 
             self.logger().info("DEBUG: About to call _get_fee_rates()")
             fee_rates = await self._get_fee_rates()
-            self.logger().info(f"DEBUG: _get_fee_rates() returned: {fee_rates}")
+            self.logger().info("DEBUG: _get_fee_rates() returned: {fee_rates}")
 
             exchange_info = {
                 "symbols": symbols,
@@ -445,7 +447,8 @@ class StandardExchange(ExchangePyBase):
         try:
             self.logger().info("DEBUG: _initialize_trading_pair_symbol_map() called")
             exchange_info = await self.build_exchange_market_info()
-            self.logger().info(f"DEBUG: build_exchange_market_info() returned: {type(exchange_info)} with keys: {list(exchange_info.keys()) if isinstance(exchange_info, dict) else 'NOT_DICT'}")
+            self.logger().info(
+                "DEBUG: build_exchange_market_info() returned: {type(exchange_info)} with keys: {list(exchange_info.keys()) if isinstance(exchange_info, dict) else 'NOT_DICT'}")
             self.logger().info("DEBUG: About to call _initialize_trading_pair_symbols_from_exchange_info")
             self._initialize_trading_pair_symbols_from_exchange_info(exchange_info=exchange_info)
             self.logger().info("DEBUG: _initialize_trading_pair_symbols_from_exchange_info completed")
@@ -545,10 +548,11 @@ class StandardExchange(ExchangePyBase):
             List of symbol information dictionaries
         """
         try:
-            self.logger().info(f"DEBUG: _get_symbols called with:")
+            self.logger().info("DEBUG: _get_symbols called with:")
             self.logger().info(f"  - self._trading_pairs = {self._trading_pairs}")
             self.logger().info(f"  - self._trading_required = {self._trading_required}")
-            self.logger().info(f"  - len(self._trading_pairs) = {len(self._trading_pairs) if self._trading_pairs else 0}")
+            self.logger().info(
+                f"  - len(self._trading_pairs) = {len(self._trading_pairs) if self._trading_pairs else 0}")
 
             # If this is a non-trading connector (used for connection testing),
             # return empty list to avoid any processing
@@ -773,13 +777,14 @@ class StandardExchange(ExchangePyBase):
                     # If no event loop is running, schedule for later
                     self.logger().info("DEBUG: No event loop running, trading rules will be updated when connector starts")
             except Exception as e:
-                self.logger().warning(f"DEBUG: Could not update trading rules immediately: {e}")
+                self.logger().warning("DEBUG: Could not update trading rules immediately: {e}")
         elif not trading_pairs:
             self.logger().warning(f"SKIPPING: Empty trading_pairs provided: {trading_pairs}")
         elif trading_pairs == self._trading_pairs:
             self.logger().info(f"SKIPPING: Trading pairs unchanged: {trading_pairs}")
         else:
-            self.logger().warning(f"SKIPPING: Unexpected condition - trading_pairs: {trading_pairs}, current: {self._trading_pairs}")
+            self.logger().warning(
+                f"SKIPPING: Unexpected condition - trading_pairs: {trading_pairs}, current: {self._trading_pairs}")
 
         self.logger().info("=== DEBUG: update_trading_pairs COMPLETED ===")
         self.logger().info(f"  Final trading_pairs: {self._trading_pairs}")
@@ -801,7 +806,7 @@ class StandardExchange(ExchangePyBase):
                 })
 
             await self._initialize_trading_rules_from_symbols(symbols)
-            self.logger().info(f"Updated trading rules for {len(trading_pairs)} trading pairs")
+            self.logger().info("Updated trading rules for {len(trading_pairs)} trading pairs")
 
         except Exception as e:
             self.logger().error(f"Failed to update trading rules for new pairs: {e}")
@@ -870,12 +875,12 @@ class StandardExchange(ExchangePyBase):
             OrderBookTrackerDataSource instance
         """
         self.logger().info("DEBUG: _create_order_book_data_source() called")
-        self.logger().info(f"DEBUG: Current trading_pairs: {self._trading_pairs}")
-        self.logger().info(f"DEBUG: trading_required: {self._trading_required}")
+        self.logger().info("DEBUG: Current trading_pairs: {self._trading_pairs}")
+        self.logger().info("DEBUG: trading_required: {self._trading_required}")
 
         # Use the configured trading pairs - don't hardcode anything
         effective_trading_pairs = self._trading_pairs.copy() if self._trading_pairs else []
-        self.logger().info(f"DEBUG: Creating order book data source with trading_pairs: {effective_trading_pairs}")
+        self.logger().info("DEBUG: Creating order book data source with trading_pairs: {effective_trading_pairs}")
 
         try:
             data_source = StandardAPIOrderBookDataSource(
@@ -890,7 +895,7 @@ class StandardExchange(ExchangePyBase):
             self._orderbook_ds = data_source
             return data_source
         except Exception as e:
-            self.logger().error(f"DEBUG: Failed to create order book data source: {e}")
+            self.logger().error("DEBUG: Failed to create order book data source: {e}")
             self.logger().exception("DEBUG: Exception details:")
             raise
 
@@ -1053,7 +1058,8 @@ class StandardExchange(ExchangePyBase):
             # Update our tracking
             self._last_nonce = final_nonce + 1
 
-            self.logger().debug(f"Nonce management: blockchain={current_nonce}, tracked={self._last_nonce - 1}, using={final_nonce}")
+            self.logger().debug(
+                f"Nonce management: blockchain={current_nonce}, tracked={self._last_nonce - 1}, using={final_nonce}")
             return final_nonce
 
         except Exception as e:
@@ -1139,7 +1145,8 @@ class StandardExchange(ExchangePyBase):
             # Check current allowance
             current_allowance = contract.functions.allowance(wallet_address, exchange_checksum).call()
 
-            self.logger().info(f"Token allowance check for {token_symbol}: current={current_allowance}, required={required_amount}")
+            self.logger().info(
+                f"Token allowance check for {token_symbol}: current={current_allowance}, required={required_amount}")
 
             if current_allowance < required_amount:
                 self.logger().info(f"Insufficient allowance for {token_symbol}. Approving {required_amount}...")
@@ -1193,7 +1200,7 @@ class StandardExchange(ExchangePyBase):
                         receipt = w3.eth.get_transaction_receipt(tx_hash)
                         if receipt:
                             break
-                    except:
+                    except Exception:
                         pass
                     await asyncio.sleep(1)
 
@@ -1266,7 +1273,8 @@ class StandardExchange(ExchangePyBase):
             # Check balance for native tokens (SOMI, ETH, SOMNIA, STT)
             if token_symbol.upper() in CONSTANTS.NATIVE_TOKEN_LIST:
                 current_balance = w3.eth.get_balance(wallet_address)
-                self.logger().info(f"Native token balance check for {token_symbol}: current={current_balance}, required={required_amount}")
+                self.logger().info(
+                    f"Native token balance check for {token_symbol}: current={current_balance}, required={required_amount}")
             else:
                 # Check ERC-20 token balance
                 contract = w3.eth.contract(
@@ -1274,16 +1282,23 @@ class StandardExchange(ExchangePyBase):
                     abi=erc20_abi
                 )
                 current_balance = contract.functions.balanceOf(wallet_address).call()
-                self.logger().info(f"Token balance check for {token_symbol}: current={current_balance}, required={required_amount}")
+                self.logger().info(
+                    f"Token balance check for {token_symbol}: current={current_balance}, required={required_amount}")
 
             if current_balance < required_amount:
-                readable_balance = current_balance / (10 ** (utils.get_token_decimals(token_symbol) if token_symbol != "ETH" else 18))
-                readable_required = required_amount / (10 ** (utils.get_token_decimals(token_symbol) if token_symbol != "ETH" else 18))
-                raise ValueError(f"Insufficient {token_symbol} balance. Have: {readable_balance:.6f}, Need: {readable_required:.6f}")
+                readable_balance = current_balance / \
+                    (10 ** (utils.get_token_decimals(token_symbol) if token_symbol != "ETH" else 18))
+                readable_required = required_amount / \
+                    (10 ** (utils.get_token_decimals(token_symbol) if token_symbol != "ETH" else 18))
+                raise ValueError(
+                    f"Insufficient {token_symbol} balance. Have: {readable_balance:.6f}, Need: {readable_required:.6f}")
             else:
-                readable_balance = current_balance / (10 ** (utils.get_token_decimals(token_symbol) if token_symbol != "ETH" else 18))
-                readable_required = required_amount / (10 ** (utils.get_token_decimals(token_symbol) if token_symbol != "ETH" else 18))
-                self.logger().info(f"Sufficient {token_symbol} balance: {readable_balance:.6f} >= {readable_required:.6f}")
+                readable_balance = current_balance / \
+                    (10 ** (utils.get_token_decimals(token_symbol) if token_symbol != "ETH" else 18))
+                readable_required = required_amount / \
+                    (10 ** (utils.get_token_decimals(token_symbol) if token_symbol != "ETH" else 18))
+                self.logger().info(
+                    f"Sufficient {token_symbol} balance: {readable_balance:.6f} >= {readable_required:.6f}")
 
         except Exception as e:
             self.logger().error(f"Error checking token balance: {e}")
@@ -1313,7 +1328,7 @@ class StandardExchange(ExchangePyBase):
             Tuple of (exchange_order_id, timestamp)
         """
         try:
-            self.logger().info(f"DEBUG: _place_order called with:")
+            self.logger().info("DEBUG: _place_order called with:")
             self.logger().info(f"  - order_id: {order_id}")
             self.logger().info(f"  - trading_pair: {trading_pair}")
             self.logger().info(f"  - amount: {amount}")
@@ -1361,7 +1376,7 @@ class StandardExchange(ExchangePyBase):
                 # Get current nonce for the account to avoid "nonce too low" errors
                 current_nonce = await self._get_current_nonce()
 
-                self.logger().info(f"DEBUG: About to call _place_order_direct_contract with:")
+                self.logger().info("DEBUG: About to call _place_order_direct_contract with:")
                 self.logger().info(f"  - is_buy: {is_buy}")
                 self.logger().info(f"  - base: {base} -> {base_address}")
                 self.logger().info(f"  - quote: {quote} -> {quote_address}")
@@ -1417,14 +1432,16 @@ class StandardExchange(ExchangePyBase):
                 actual_order_id = tx_hash.get('order_id')
 
                 self._order_id_map[order_id] = {
-                    'blockchain_order_id': actual_order_id if actual_order_id else transaction_hash,  # Use order ID if available, fallback to tx hash
+                    # Use order ID if available, fallback to tx hash
+                    'blockchain_order_id': actual_order_id if actual_order_id else transaction_hash,
                     'transaction_hash': transaction_hash,  # Keep tx hash for reference
                     'base_address': base_address,
                     'quote_address': quote_address,
                     'is_bid': is_buy
                 }
 
-                self.logger().info(f"Order placed successfully: {order_id} -> {transaction_hash} (order_id: {actual_order_id}, max_matches: {MAX_ORDERS_TO_MATCH})")
+                self.logger().info(
+                    f"Order placed successfully: {order_id} -> {transaction_hash} (order_id: {actual_order_id}, max_matches: {MAX_ORDERS_TO_MATCH})")
                 tx_hash_for_return = transaction_hash
             else:
                 # Old format: just transaction hash (fallback)
@@ -1453,7 +1470,8 @@ class StandardExchange(ExchangePyBase):
                         'is_bid': is_buy
                     }
                 else:
-                    self.logger().warning(f"Could not extract order ID from tx receipt: {tx_hash}, using tx hash as fallback")
+                    self.logger().warning(
+                        f"Could not extract order ID from tx receipt: {tx_hash}, using tx hash as fallback")
                     self._order_id_map[order_id] = {
                         'blockchain_order_id': tx_hash,  # Fallback to transaction hash
                         'transaction_hash': tx_hash,
@@ -1462,7 +1480,8 @@ class StandardExchange(ExchangePyBase):
                         'is_bid': is_buy
                     }
 
-                self.logger().info(f"Order placed successfully: {order_id} -> {tx_hash} (max_matches: {MAX_ORDERS_TO_MATCH})")
+                self.logger().info(
+                    f"Order placed successfully: {order_id} -> {tx_hash} (max_matches: {MAX_ORDERS_TO_MATCH})")
                 tx_hash_for_return = tx_hash
 
             # Check transaction status if tx_hash contains receipt information (legacy support)
@@ -1484,7 +1503,7 @@ class StandardExchange(ExchangePyBase):
             if order_id in self._order_tracker.active_orders:
                 tracked_order = self._order_tracker.active_orders[order_id]
                 tracked_order.update_exchange_order_id(tx_hash_for_return)
-                self.logger().info(f"Updated exchange_order_id for {order_id}: {tx_hash_for_return}")
+                self.logger().info("Updated exchange_order_id for {order_id}: {tx_hash_for_return}")
 
             # Return transaction hash as exchange order ID
             timestamp = time.time()
@@ -1569,7 +1588,8 @@ class StandardExchange(ExchangePyBase):
 
                     # Calculate price_wei with correct contract precision
                     price_wei = int(execution_price * CONSTANTS.DENOM)
-                    self.logger().info(f"  - price_wei calculation: {execution_price} * {CONSTANTS.DENOM} = {price_wei}")
+                    self.logger().info(
+                        f"  - price_wei calculation: {execution_price} * {CONSTANTS.DENOM} = {price_wei}")
                     self.logger().info(f"  - quote_amount_wei: {quote_amount_wei}")
                     self.logger().info(f"  - nonce: {current_nonce}")
 
@@ -1709,7 +1729,7 @@ class StandardExchange(ExchangePyBase):
                 base_symbol = utils.convert_address_to_symbol(base_address, self._domain)
                 is_native_sell = base_symbol.upper() in CONSTANTS.NATIVE_TOKEN_LIST
 
-                self.logger().info(f"DEBUG SELL ORDER PATH:")
+                self.logger().info("DEBUG SELL ORDER PATH:")
                 self.logger().info(f"  - base_symbol: {base_symbol}")
                 self.logger().info(f"  - base_address: {base_address}")
                 self.logger().info(f"  - is_native_sell: {is_native_sell}")
@@ -1724,7 +1744,8 @@ class StandardExchange(ExchangePyBase):
 
                     # Calculate price_wei with correct contract precision
                     price_wei = int(execution_price * CONSTANTS.DENOM)
-                    self.logger().info(f"  - price_wei calculation: {execution_price} * {CONSTANTS.DENOM} = {price_wei}")
+                    self.logger().info(
+                        f"  - price_wei calculation: {execution_price} * {CONSTANTS.DENOM} = {price_wei}")
                     self.logger().info(f"  - base_amount_wei: {base_amount_wei}")
                     self.logger().info(f"  - nonce: {current_nonce}")
 
@@ -1836,7 +1857,8 @@ class StandardExchange(ExchangePyBase):
                         self.logger().warning("standardweb3 matching_engine_abi not available, falling back to manual encoding")
 
                         # Fallback to manual encoding
-                        function_selector = w3.keccak(text="limitSell(address,address,uint256,uint256,bool,uint32,address)")[:4].hex()
+                        function_selector = w3.keccak(
+                            text="limitSell(address,address,uint256,uint256,bool,uint32,address)")[:4].hex()
 
                         # Encode parameters according to ABI (note uint32 for n parameter)
                         encoded_params = w3.codec.encode(
@@ -1863,7 +1885,8 @@ class StandardExchange(ExchangePyBase):
             if is_native_sell:
                 # For limitSellETH, transaction value is the base amount being sold
                 transaction_value = base_amount_wei
-                self.logger().info(f"Selling native token {base_symbol}: sending {transaction_value} wei ({amount} {base_symbol}) as transaction value")
+                self.logger().info(
+                    f"Selling native token {base_symbol}: sending {transaction_value} wei ({amount} {base_symbol}) as transaction value")
             else:
                 # For limitBuy or limitSell (ERC20), no value needed
                 transaction_value = 0
@@ -2115,7 +2138,8 @@ class StandardExchange(ExchangePyBase):
                 is_bid = order_info['is_bid']
                 blockchain_order_id = order_info['blockchain_order_id']
 
-                self.logger().info(f"Using StandardWeb3 cancel_orders for: {order_id} -> blockchain_order_id: {blockchain_order_id}")
+                self.logger().info(
+                    "Using StandardWeb3 cancel_orders for: {order_id} -> blockchain_order_id: {blockchain_order_id}")
 
                 # If blockchain_order_id is a transaction hash (string), we need to extract the real order ID
                 if isinstance(blockchain_order_id, str):
@@ -2123,11 +2147,13 @@ class StandardExchange(ExchangePyBase):
                     extracted_order_id = await self._extract_order_id_from_transaction_receipt(blockchain_order_id)
 
                     if extracted_order_id == "IMMEDIATELY_FILLED":
-                        self.logger().info(f"Order {order_id} was immediately filled - no order to cancel on blockchain")
+                        self.logger().info(
+                            f"Order {order_id} was immediately filled - no order to cancel on blockchain")
                         cancellation_id = f"immediately_filled_{order_id}"
                         return cancellation_id
                     elif extracted_order_id is None:
-                        self.logger().warning(f"Could not extract order ID from transaction {blockchain_order_id}, falling back to direct contract")
+                        self.logger().warning(
+                            f"Could not extract order ID from transaction {blockchain_order_id}, falling back to direct contract")
                         # Continue to fallback method below
                     else:
                         blockchain_order_id = extracted_order_id
@@ -2179,7 +2205,7 @@ class StandardExchange(ExchangePyBase):
                 is_bid = order_info['is_bid']
                 blockchain_order_id = order_info['blockchain_order_id']
 
-                self.logger().info(f"Found order mapping for {order_id}: blockchain_order_id={blockchain_order_id}")
+                self.logger().info("Found order mapping for {order_id}: blockchain_order_id={blockchain_order_id}")
 
                 # If blockchain_order_id is a transaction hash (string), we need to extract the real order ID
                 if isinstance(blockchain_order_id, str):
@@ -2187,11 +2213,13 @@ class StandardExchange(ExchangePyBase):
                     extracted_order_id = await self._extract_order_id_from_transaction_receipt(blockchain_order_id)
 
                     if extracted_order_id == "IMMEDIATELY_FILLED":
-                        self.logger().info(f"Order {order_id} was immediately filled - no order to cancel on blockchain")
+                        self.logger().info(
+                            f"Order {order_id} was immediately filled - no order to cancel on blockchain")
                         cancellation_id = f"immediately_filled_{order_id}"
                         return cancellation_id
                     elif extracted_order_id is None:
-                        self.logger().warning(f"Could not extract order ID from transaction {blockchain_order_id}, using local cancellation")
+                        self.logger().warning(
+                            f"Could not extract order ID from transaction {blockchain_order_id}, using local cancellation")
                         cancellation_id = f"cancelled_{order_id}"
                         return cancellation_id
 
@@ -2199,7 +2227,8 @@ class StandardExchange(ExchangePyBase):
                     self.logger().info(f"Extracted integer order ID: {blockchain_order_id}")
 
                 elif not isinstance(blockchain_order_id, int):
-                    self.logger().warning(f"Invalid blockchain order ID type: {type(blockchain_order_id)}, value: {blockchain_order_id}")
+                    self.logger().warning(
+                        f"Invalid blockchain order ID type: {type(blockchain_order_id)}, value: {blockchain_order_id}")
                     cancellation_id = f"cancelled_{order_id}"
                     return cancellation_id
 
@@ -2228,7 +2257,8 @@ class StandardExchange(ExchangePyBase):
                     order_mapping = self._order_id_map[order_id]
                     blockchain_order_id = order_mapping.get('blockchain_order_id')
 
-                    self.logger().info(f"Found stored order mapping for {order_id}: blockchain_order_id={blockchain_order_id}")
+                    self.logger().info(
+                        "Found stored order mapping for {order_id}: blockchain_order_id={blockchain_order_id}")
 
                     # If blockchain_order_id is a transaction hash (string), we need to extract the real order ID
                     if isinstance(blockchain_order_id, str):
@@ -2236,11 +2266,13 @@ class StandardExchange(ExchangePyBase):
                         blockchain_order_id = await self._extract_order_id_from_transaction_receipt(blockchain_order_id)
 
                         if blockchain_order_id is None:
-                            self.logger().warning(f"Could not extract order ID from transaction {exchange_order_id}, using local cancellation")
+                            self.logger().warning(
+                                f"Could not extract order ID from transaction {exchange_order_id}, using local cancellation")
                             cancellation_id = f"cancelled_{order_id}"
                             return cancellation_id
                     elif not isinstance(blockchain_order_id, int):
-                        self.logger().warning(f"Invalid blockchain order ID type: {type(blockchain_order_id)}, value: {blockchain_order_id}")
+                        self.logger().warning(
+                            f"Invalid blockchain order ID type: {type(blockchain_order_id)}, value: {blockchain_order_id}")
                         cancellation_id = f"cancelled_{order_id}"
                         return cancellation_id
                 else:
@@ -2319,7 +2351,8 @@ class StandardExchange(ExchangePyBase):
 
             # Process each log in the receipt
             for i, log in enumerate(receipt.logs):
-                self.logger().info(f"Log {i}: address={log.address.lower()}, is_exchange={log.address.lower() == exchange_address.lower()}")
+                self.logger().info(
+                    f"Log {i}: address={log.address.lower()}, is_exchange={log.address.lower() == exchange_address.lower()}")
 
                 # Only process logs from our exchange contract
                 if log.address.lower() != exchange_address.lower():
@@ -2342,7 +2375,7 @@ class StandardExchange(ExchangePyBase):
                     try:
                         decoded_log = contract.events.OrderMatched().process_log(log)
                         order_matched_found = True
-                        self.logger().info(f"Found OrderMatched event in log {i}: {decoded_log['args']} (tx: {tx_hash})")
+                        self.logger().info("Found OrderMatched event in log {i}: {decoded_log['args']} (tx: {tx_hash})")
                         # Continue to check for other events
                         continue
                     except Exception as e2:
@@ -2547,7 +2580,7 @@ class StandardExchange(ExchangePyBase):
                 # For balance command or non-trading mode, use default tokens
                 self.logger().info("No trading pairs configured - using default tokens for balance check")
                 tokens = CONSTANTS.DEFAULT_TOKENS.copy()
-                self.logger().info(f"Using default tokens for balance check: {tokens}")
+                self.logger().info("Using default tokens for balance check: {tokens}")
             else:
                 for trading_pair in self._trading_pairs:
                     base, quote = utils.split_trading_pair(trading_pair)
@@ -2926,7 +2959,8 @@ class StandardExchange(ExchangePyBase):
 
                 # Only mark as failed if order is older than 5 minutes and still not found
                 if time_since_creation > 300:  # 5 minutes
-                    self.logger().warning(f"Order {tracked_order.client_order_id} not found after 5 minutes, marking as failed")
+                    self.logger().warning(
+                        f"Order {tracked_order.client_order_id} not found after 5 minutes, marking as failed")
                     return OrderUpdate(
                         trading_pair=tracked_order.trading_pair,
                         update_timestamp=time.time(),
@@ -2936,7 +2970,8 @@ class StandardExchange(ExchangePyBase):
                     )
                 else:
                     # Order is still new, assume it's OPEN and wait for indexing
-                    self.logger().debug(f"Order {tracked_order.client_order_id} not found yet (age: {time_since_creation:.1f}s), assuming OPEN")
+                    self.logger().debug(
+                        f"Order {tracked_order.client_order_id} not found yet (age: {time_since_creation:.1f}s), assuming OPEN")
                     return OrderUpdate(
                         trading_pair=tracked_order.trading_pair,
                         update_timestamp=time.time(),
@@ -3084,8 +3119,8 @@ class StandardExchange(ExchangePyBase):
             exchange_info: Exchange information dictionary
         """
         self.logger().info("DEBUG: _initialize_trading_pair_symbols_from_exchange_info called")
-        self.logger().info(f"DEBUG: exchange_info keys: {list(exchange_info.keys())}")
-        self.logger().info(f"DEBUG: exchange_info type: {type(exchange_info)}")
+        self.logger().info("DEBUG: exchange_info keys: {list(exchange_info.keys())}")
+        self.logger().info("DEBUG: exchange_info type: {type(exchange_info)}")
 
         # Use bidict like Vertex for proper symbol mapping
         mapping = bidict()
@@ -3094,37 +3129,37 @@ class StandardExchange(ExchangePyBase):
         if "symbols" in exchange_info:
             self.logger().info("DEBUG: Using format 1 - exchange_info contains 'symbols' key")
             symbols = exchange_info.get("symbols", [])
-            self.logger().info(f"DEBUG: Found {len(symbols)} symbols in 'symbols' key")
+            self.logger().info("DEBUG: Found {len(symbols)} symbols in 'symbols' key")
 
             for symbol_info in symbols:
                 if isinstance(symbol_info, dict):
                     symbol = symbol_info.get("symbol", "")
                     base = symbol_info.get("baseAsset", "")
                     quote = symbol_info.get("quoteAsset", "")
-                    self.logger().info(f"DEBUG: Processing symbol - symbol: {symbol}, base: {base}, quote: {quote}")
+                    self.logger().info("DEBUG: Processing symbol - symbol: {symbol}, base: {base}, quote: {quote}")
 
                     if symbol and base and quote:
                         # Use combine_to_hb_trading_pair like Vertex
                         hb_trading_pair = combine_to_hb_trading_pair(base=base, quote=quote)
                         mapping[symbol] = hb_trading_pair
-                        self.logger().info(f"DEBUG: Added mapping {symbol} -> {hb_trading_pair}")
+                        self.logger().info("DEBUG: Added mapping {symbol} -> {hb_trading_pair}")
 
         # Handle direct trading pair keys - format 2 (when base class calls directly)
         else:
             self.logger().info("DEBUG: Using format 2 - exchange_info contains direct trading pair keys")
-            self.logger().info(f"DEBUG: Full exchange_info content: {exchange_info}")
+            self.logger().info("DEBUG: Full exchange_info content: {exchange_info}")
             trading_pair_keys = [key for key in exchange_info.keys() if "-" in key]
-            self.logger().info(f"DEBUG: Found trading pair keys: {trading_pair_keys}")
+            self.logger().info("DEBUG: Found trading pair keys: {trading_pair_keys}")
 
             # If no keys with dash, try all keys as potential trading pairs
             if not trading_pair_keys:
                 self.logger().info("DEBUG: No keys with dash found, checking all keys")
                 all_keys = list(exchange_info.keys())
-                self.logger().info(f"DEBUG: All keys: {all_keys}")
+                self.logger().info("DEBUG: All keys: {all_keys}")
 
                 # Check if any key looks like a trading pair or if we should use configured trading pairs
                 for key in all_keys:
-                    self.logger().info(f"DEBUG: Examining key: {key}, type: {type(key)}")
+                    self.logger().info("DEBUG: Examining key: {key}, type: {type(key)}")
 
                     # If key is a trading pair format, use it
                     if isinstance(key, str) and "-" in key:
@@ -3138,7 +3173,7 @@ class StandardExchange(ExchangePyBase):
                     self.logger().info("DEBUG: Using configured trading pairs as fallback")
                     trading_pair_keys = self._trading_pairs
 
-            self.logger().info(f"DEBUG: Final trading pair keys to process: {trading_pair_keys}")
+            self.logger().info("DEBUG: Final trading pair keys to process: {trading_pair_keys}")
 
             for trading_pair in trading_pair_keys:
                 try:
@@ -3149,17 +3184,17 @@ class StandardExchange(ExchangePyBase):
                         # Create proper Hummingbot trading pair format
                         hb_trading_pair = combine_to_hb_trading_pair(base=base_asset, quote=quote_asset)
 
-                        self.logger().info(f"DEBUG: Mapping {trading_pair} -> {hb_trading_pair}")
+                        self.logger().info("DEBUG: Mapping {trading_pair} -> {hb_trading_pair}")
                         mapping[trading_pair] = hb_trading_pair
                     else:
-                        self.logger().info(f"DEBUG: Skipping key without dash: {trading_pair}")
+                        self.logger().info("DEBUG: Skipping key without dash: {trading_pair}")
 
                 except Exception as e:
-                    self.logger().error(f"DEBUG: Error processing trading pair {trading_pair}: {e}")
+                    self.logger().error("DEBUG: Error processing trading pair {trading_pair}: {e}")
                     import traceback
-                    self.logger().error(f"DEBUG: Traceback: {traceback.format_exc()}")
+                    self.logger().error("DEBUG: Traceback: {traceback.format_exc()}")
 
-        self.logger().info(f"DEBUG: Final mapping before setting: {dict(mapping)}")
+        self.logger().info("DEBUG: Final mapping before setting: {dict(mapping)}")
         self.logger().info(f"Initialized trading pair symbol map with {len(mapping)} pairs: {dict(mapping)}")
 
         self.logger().info("DEBUG: About to call _set_trading_pair_symbol_map")
@@ -3168,8 +3203,8 @@ class StandardExchange(ExchangePyBase):
 
         # Verify it was set
         current_map = getattr(self, '_trading_pair_symbol_map', 'NOT SET')
-        self.logger().info(f"DEBUG: After setting, _trading_pair_symbol_map = {current_map}")
-        self.logger().info(f"DEBUG: trading_pair_symbol_map_ready() = {self.trading_pair_symbol_map_ready()}")
+        self.logger().info("DEBUG: After setting, _trading_pair_symbol_map = {current_map}")
+        self.logger().info("DEBUG: trading_pair_symbol_map_ready() = {self.trading_pair_symbol_map_ready()}")
 
     async def _update_trading_fees(self):
         """
@@ -3468,16 +3503,17 @@ class StandardExchange(ExchangePyBase):
 
             # Check if VWAP calculation failed due to insufficient liquidity
             if vwap_result.result_price.is_nan():
-                self.logger().warning(f"VWAP calculation failed for {trading_pair} {amount} ({'buy' if is_buy else 'sell'}) - insufficient liquidity")
+                self.logger().warning(
+                    f"VWAP calculation failed for {trading_pair} {amount} ({'buy' if is_buy else 'sell'}) - insufficient liquidity")
 
                 # Fallback to best bid/ask price
                 if is_buy and len(asks) > 0:
                     fallback_price = Decimal(str(asks[0].price))
-                    self.logger().debug(f"Using fallback best ask price: {fallback_price}")
+                    self.logger().debug("Using fallback best ask price: {fallback_price}")
                     return fallback_price
                 elif not is_buy and len(bids) > 0:
                     fallback_price = Decimal(str(bids[0].price))
-                    self.logger().debug(f"Using fallback best bid price: {fallback_price}")
+                    self.logger().debug("Using fallback best bid price: {fallback_price}")
                     return fallback_price
                 else:
                     self.logger().error(f"No liquidity available in order book for {trading_pair}")
