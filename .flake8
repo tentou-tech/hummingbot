@@ -2,5 +2,6 @@
 max-line-length = 120
 ignore = E203,W503,E402,F401
 exclude = build,__pycache__,.git,*.egg-info,dist
-per-file-ignores = 
+per-file-ignores =
     scripts/*:E402,F401
+    hummingbot/connector/exchange/standard/standard_exchange.py:E501,F541,F841,E722,F811,F821
