@@ -691,7 +691,7 @@ class ClientConfigMap(BaseClientModel):
     debug_console: bool = Field(default=False)
     strategy_report_interval: float = Field(default=900)
     logger_override_whitelist: List = Field(
-        default=["hummingbot.strategy.arbitrage", "hummingbot.strategy.cross_exchange_market_making", "conf"]
+        default=["hummingbot.strategy.arbitrage", "hummingbot.strategy.cross_exchange_market_making", "conf", "hummingbot.strategy.amm_arb"]
     )
     log_file_path: Path = Field(
         default=DEFAULT_LOG_FILE_PATH,
