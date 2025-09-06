@@ -97,31 +97,6 @@ class StandardExchange(ExchangePyBase):
             cls._logger = logging.getLogger(__name__)
         return cls._logger
 
-    @classmethod
-    def _should_log_error(cls) -> bool:
-        """
-        Check if we should log an error based on rate limiting.
-
-        Returns:
-            True if error should be logged, False if rate limited
-        """
-        current_time = time.time()
-
-        # Reset error count if time window has passed
-        if current_time - cls._last_error_time > cls._error_time_window:
-            cls._error_count = 0
-            cls._last_error_time = current_time
-
-        # Increment error count
-        cls._error_count += 1
-
-        # Check if we've exceeded the rate limit
-        if cls._error_count > cls._error_rate_limit:
-            return False
-
-        cls._last_error_time = current_time
-        return True
-
     def __init__(
         self,
         client_config_map: "ClientConfigAdapter",
@@ -140,6 +115,7 @@ class StandardExchange(ExchangePyBase):
 
         # Check if domain is set via environment variable
         import os
+
         env_domain = os.getenv("SOMNIA_DOMAIN")
         if env_domain and env_domain != domain:
             self.logger().info(f"Overriding domain from parameter ({domain}) with value from .env: {env_domain}")
@@ -152,14 +128,16 @@ class StandardExchange(ExchangePyBase):
         self._trading_required = trading_required
         self._trading_pairs = trading_pairs or []
 
-        self.logger().info("Using domain: {self._domain} - Token addresses and API endpoints "
-                           f"will be specific to this domain.")
+        self.logger().info(
+            "Using domain: {self._domain} - Token addresses and API endpoints " f"will be specific to this domain."
+        )
         self.logger().info("DEBUG: After assignment:")
         self.logger().info(f"  - self._trading_pairs = {self._trading_pairs} (len: {len(self._trading_pairs)})")
         self.logger().info(f"  - self._trading_required = {self._trading_required}")
 
         # Log the call stack to understand who's creating this connector
         import traceback
+
         stack = traceback.format_stack()
         self.logger().info("DEBUG: Connector creation call stack (last 5 frames):")
         for i, frame in enumerate(stack[-5:]):
@@ -177,7 +155,7 @@ class StandardExchange(ExchangePyBase):
                 load_dotenv()
 
                 # Get private key from environment (use env variable over parameter for StandardClient)
-                env_private_key = os.getenv('SOMNIA_PRIVATE_KEY')
+                env_private_key = os.getenv("SOMNIA_PRIVATE_KEY")
                 if env_private_key:
                     standard_client_private_key = env_private_key
                     # Also update the private key used for direct contract calls
@@ -185,12 +163,14 @@ class StandardExchange(ExchangePyBase):
                     self.logger().info("Using private key from .env file for StandardClient and direct contract calls")
                 else:
                     standard_client_private_key = self._private_key
-                    self.logger().info("Using private key from constructor parameter for StandardClient and direct contract calls")
+                    self.logger().info(
+                        "Using private key from constructor parameter for StandardClient and direct contract calls"
+                    )
 
                 # Get configuration from environment with fallbacks
                 domain_config = CONSTANTS.DOMAIN_CONFIG[self._domain]
-                rpc_url = os.getenv('SOMNIA_RPC_URL', domain_config["rpc_url"])
-                api_key = os.getenv('STANDARD_API_KEY', 'defaultApiKey')
+                rpc_url = os.getenv("SOMNIA_RPC_URL", domain_config["rpc_url"])
+                api_key = os.getenv("STANDARD_API_KEY", "defaultApiKey")
 
                 # Store RPC URL for nonce management
                 self._rpc_url = rpc_url
@@ -201,7 +181,8 @@ class StandardExchange(ExchangePyBase):
                 matching_engine_address = domain_config["standard_exchange_address"]
 
                 self.logger().info(
-                    f"StandardWeb3 config - API: {api_url}, WS: {websocket_url}, ME: {matching_engine_address}")
+                    f"StandardWeb3 config - API: {api_url}, WS: {websocket_url}, ME: {matching_engine_address}"
+                )
                 self.logger().info("Using private key length: {len(standard_client_private_key)} characters")
 
                 # Initialize StandardClient without networkName parameter
@@ -211,7 +192,7 @@ class StandardExchange(ExchangePyBase):
                     matching_engine_address=matching_engine_address,
                     api_url=api_url,
                     websocket_url=websocket_url,
-                    api_key=api_key
+                    api_key=api_key,
                 )
                 self.logger().info(f"StandardWeb3 client initialized successfully")
             except Exception as e:
@@ -246,49 +227,23 @@ class StandardExchange(ExchangePyBase):
         self.logger().info("DEBUG: super().__init__() completed successfully")
 
         # Set connector reference in data sources after initialization
-        if hasattr(self, '_orderbook_ds') and self._orderbook_ds:
+        if hasattr(self, "_orderbook_ds") and self._orderbook_ds:
             self._orderbook_ds._connector = self
 
         # Real-time balance updates - DEX connectors don't submit all balance updates
         # Instead they only update on position changes (not cancel), so we need to fetch periodically
         self.real_time_balance_update = False
 
+        # 🔄 PHASE 1: Add transaction tracking infrastructure
+        self._pending_tx_hashes: Dict[str, Dict] = {}  # tx_hash -> {timestamp, order_type, client_order_id}
+        self._tx_order_mapping: Dict[str, str] = {}  # tx_hash -> client_order_id
+        self._order_tx_mapping: Dict[str, str] = {}  # client_order_id -> tx_hash
+        self._tx_monitor_task: Optional[asyncio.Task] = None  # Background task for transaction monitoring
+
+        self.logger().info("DEBUG: Transaction tracking infrastructure initialized")
         self.logger().info("DEBUG: StandardExchange.__init__ completed successfully")
 
     @staticmethod
-    def standard_order_type(order_type: OrderType) -> str:
-        """
-        Convert Hummingbot order type to Somnia format.
-
-        Args:
-            order_type: Hummingbot order type
-
-        Returns:
-            Somnia order type string
-        """
-        return {
-            OrderType.LIMIT: "limit",
-            OrderType.MARKET: "market",
-            OrderType.LIMIT_MAKER: "limit_maker",
-        }.get(order_type, "limit")
-
-    @staticmethod
-    def to_hb_order_type(standard_type: str) -> OrderType:
-        """
-        Convert Somnia order type to Hummingbot format.
-
-        Args:
-            standard_type: Somnia order type
-
-        Returns:
-            Hummingbot OrderType
-        """
-        return {
-            "limit": OrderType.LIMIT,
-            "market": OrderType.MARKET,
-            "limit_maker": OrderType.LIMIT_MAKER,
-        }.get(standard_type, OrderType.LIMIT)    @ property
-
     def authenticator(self) -> StandardAuth:
         """Get authenticator instance."""
         return self._auth
@@ -351,7 +306,691 @@ class StandardExchange(ExchangePyBase):
             self.logger().error(f"Network check failed: {e}")
             return NetworkStatus.NOT_CONNECTED
 
-    # ====== MISSING CRITICAL METHODS FROM VERTEX ======
+    # 💰 GAS & BALANCE MANAGEMENT
+    _min_gas_balance_wei = None  # Minimum SOMI balance for gas fees
+    _gas_buffer_multiplier = 2.0  # Buffer for gas price volatility
+    _last_gas_check_time = 0
+    _gas_check_interval = 30  # Check gas balance every 30 seconds
+    _last_gas_price = None  # Cached gas price
+    _last_gas_price_time = 0
+    _gas_price_cache_duration = 30  # Cache gas price for 30 seconds
+
+    async def _get_cached_gas_price(self) -> int:
+        """
+        Get cached gas price to avoid redundant Web3 calls.
+        Caches gas price for 30 seconds to balance accuracy and performance.
+
+        Returns:
+            Gas price in wei
+        """
+        current_time = time.time()
+
+        # Return cached gas price if still valid
+        if (
+            self._last_gas_price is not None
+            and current_time - self._last_gas_price_time < self._gas_price_cache_duration
+        ):
+            return self._last_gas_price
+
+        # Fetch new gas price
+        try:
+            from web3 import Web3
+
+            rpc_url = CONSTANTS.DOMAIN_CONFIG[self._domain]["rpc_url"]
+            w3 = Web3(Web3.HTTPProvider(rpc_url))
+
+            gas_price = w3.eth.gas_price
+
+            # Cache the result
+            self._last_gas_price = gas_price
+            self._last_gas_price_time = current_time
+
+            self.logger().debug(f"Updated cached gas price: {gas_price} wei")
+            return gas_price
+
+        except Exception as e:
+            self.logger().warning(f"Failed to get gas price, using fallback: {e}")
+            fallback_gas_price = 20 * 10**9  # 20 Gwei fallback
+
+            # Cache the fallback too
+            self._last_gas_price = fallback_gas_price
+            self._last_gas_price_time = current_time
+
+            return fallback_gas_price
+
+    async def _check_gas_balance_sufficient(self) -> bool:
+        """
+        Check if wallet has sufficient native token balance for gas fees.
+        Uses already-fetched balance data to avoid redundant Web3 calls.
+
+        Returns:
+            True if sufficient gas balance, False otherwise
+        """
+        try:
+            current_time = time.time()
+
+            # Only check gas balance every 30 seconds to avoid excessive calculations
+            if current_time - self._last_gas_check_time < self._gas_check_interval:
+                return True  # Assume sufficient if checked recently
+
+            self._last_gas_check_time = current_time
+
+            # Get native token balance from already-fetched data (avoids redundant Web3 call)
+            native_token = CONSTANTS.NATIVE_TOKEN
+            balance_somi = self.get_balance(native_token)
+
+            if balance_somi <= 0:
+                self.logger().warning(f"⚠️ No {native_token} balance found for gas fees")
+                return False
+
+            # Calculate minimum gas balance needed (estimate for ~10 transactions)
+            # Use cached gas price to avoid redundant Web3 calls
+            gas_price = await self._get_cached_gas_price()
+
+            estimated_gas_per_tx = 200000  # Conservative estimate
+            gas_needed_for_10_tx = gas_price * estimated_gas_per_tx * 10 * self._gas_buffer_multiplier
+
+            # Convert to Decimal using proper scaling
+            min_balance_needed = Decimal(gas_needed_for_10_tx) / Decimal(10**18)
+
+            self._min_gas_balance_wei = gas_needed_for_10_tx
+
+            if balance_somi < min_balance_needed:
+                self.logger().warning(
+                    f"⚠️  LOW GAS BALANCE WARNING: {balance_somi:.6f} {native_token} "
+                    f"(Need: {min_balance_needed:.6f} {native_token} for ~10 transactions)"
+                )
+
+                # If balance is critically low (less than 2 transactions), prevent new orders
+                critical_threshold = Decimal(gas_price * estimated_gas_per_tx * 2) / Decimal(10**18)
+                if balance_somi < critical_threshold:
+                    self.logger().error(
+                        f"🚨 CRITICAL GAS BALANCE: {balance_somi:.6f} {native_token} "
+                        f"(Critical threshold: {critical_threshold:.6f} {native_token})"
+                    )
+                    return False
+            else:
+                self.logger().debug(
+                    f"✅ Gas balance sufficient: {balance_somi:.6f} {native_token} "
+                    f"(Need: {min_balance_needed:.6f} {native_token})"
+                )
+
+            return True
+
+        except Exception as e:
+            self.logger().error(f"Error checking gas balance: {e}")
+            # Return True to avoid blocking operations if check fails
+            return True
+
+    async def _ensure_sufficient_gas_before_transaction(self, operation_type: str) -> bool:
+        """
+        Ensure sufficient gas balance before attempting blockchain transactions.
+
+        Args:
+            operation_type: Type of operation ('place_order', 'cancel_order', etc.)
+
+        Returns:
+            True if sufficient gas, False if should skip transaction
+        """
+        try:
+            if not await self._check_gas_balance_sufficient():
+                self.logger().error(
+                    f"❌ Skipping {operation_type} due to insufficient gas balance. "
+                    f"Please deposit SOMI for gas fees."
+                )
+
+                # Emit event for monitoring systems
+                self._emit_transaction_event(
+                    "insufficient_gas",
+                    {
+                        "operation_type": operation_type,
+                        "timestamp": time.time(),
+                        "wallet_address": self._wallet_address,
+                        "message": "Transaction skipped due to insufficient gas balance",
+                    },
+                )
+
+                return False
+
+            return True
+
+        except Exception as e:
+            self.logger().error(f"Error in gas balance check for {operation_type}: {e}")
+            # Allow transaction to proceed if check fails
+            return True
+
+    async def _start_tx_monitoring(self):
+        """Start background transaction monitoring task."""
+        if self._tx_monitor_task is None or self._tx_monitor_task.done():
+            self._tx_monitor_task = asyncio.create_task(self._monitor_transactions())
+            self.logger().info("🚀 PHASE 3: Started transaction monitoring task")
+        else:
+            self.logger().debug("Transaction monitoring task already running")
+
+    async def _stop_tx_monitoring(self):
+        """Stop background transaction monitoring task."""
+        if self._tx_monitor_task and not self._tx_monitor_task.done():
+            self._tx_monitor_task.cancel()
+            try:
+                await self._tx_monitor_task
+            except asyncio.CancelledError:
+                pass
+            self.logger().info("🛑 PHASE 3: Stopped transaction monitoring task")
+        else:
+            self.logger().debug("No transaction monitoring task to stop")
+
+    async def _monitor_transactions(self):
+        """
+        Background task to monitor blockchain transactions.
+        Checks pending transactions and updates order status when confirmed/failed.
+        """
+        from web3 import Web3
+
+        rpc_url = CONSTANTS.DOMAIN_CONFIG[self._domain]["rpc_url"]
+        w3 = Web3(Web3.HTTPProvider(rpc_url))
+
+        self.logger().info("🔄 PHASE 3: Transaction monitoring task started")
+
+        while True:
+            try:
+                await asyncio.sleep(2)  # Check every 2 seconds
+
+                # Copy pending tx list to avoid modification during iteration
+                pending_tx_list = list(self._pending_tx_hashes.keys())
+
+                if pending_tx_list:
+                    self.logger().debug(f"Monitoring {len(pending_tx_list)} pending transactions")
+
+                for tx_hash in pending_tx_list:
+                    await self._check_transaction_status(w3, tx_hash)
+
+                # Clean up old pending transactions (older than 10 minutes)
+                await self._cleanup_old_pending_transactions()
+
+            except asyncio.CancelledError:
+                self.logger().info("🛑 Transaction monitoring task cancelled")
+                break
+            except Exception as e:
+                self.logger().error(f"Error in transaction monitoring: {e}")
+                await asyncio.sleep(5)  # Wait longer on error
+
+    async def _check_transaction_status(self, w3, tx_hash: str):
+        """Check status of a specific transaction."""
+        try:
+            receipt = w3.eth.get_transaction_receipt(tx_hash)
+
+            if receipt:
+                # Transaction confirmed!
+                tx_info = self._pending_tx_hashes.get(tx_hash)
+                client_order_id = tx_info.get("client_order_id") if tx_info else None
+
+                if client_order_id:
+                    self.logger().info(f"🔍 Transaction {tx_hash[:10]}... confirmed for order {client_order_id}")
+
+                    if receipt.status == 1:
+                        # SUCCESS
+                        await self._handle_transaction_success(client_order_id, tx_hash, receipt)
+                    else:
+                        # FAILED
+                        await self._handle_transaction_failure(client_order_id, tx_hash, receipt)
+                else:
+                    self.logger().debug(f"Transaction {tx_hash[:10]}... confirmed but no associated order found")
+
+                # Remove from pending
+                self._pending_tx_hashes.pop(tx_hash, None)
+                self._tx_order_mapping.pop(tx_hash, None)
+                if client_order_id:
+                    self._order_tx_mapping.pop(client_order_id, None)
+
+        except Exception as e:
+            if "transaction not found" not in str(e).lower():
+                self.logger().warning(f"Error checking tx {tx_hash[:10]}...: {e}")
+            # Don't remove from pending - transaction might still be in mempool
+
+    async def _cleanup_old_pending_transactions(self):
+        """Clean up transactions that have been pending too long."""
+        current_time = self.current_timestamp
+        timeout_seconds = 600  # 10 minutes
+
+        to_remove = []
+        for tx_hash, tx_info in self._pending_tx_hashes.items():
+            if current_time - tx_info["timestamp"] > timeout_seconds:
+                to_remove.append(tx_hash)
+
+        for tx_hash in to_remove:
+            tx_info = self._pending_tx_hashes.get(tx_hash, {})
+            client_order_id = tx_info.get("client_order_id")
+
+            self.logger().warning(f"🕐 Transaction {tx_hash[:10]}... timed out after 10 minutes")
+
+            if client_order_id:
+                # Mark order as failed due to timeout
+                await self._handle_transaction_timeout(client_order_id, tx_hash)
+
+            # Remove from tracking
+            self._pending_tx_hashes.pop(tx_hash, None)
+            self._tx_order_mapping.pop(tx_hash, None)
+            if client_order_id:
+                self._order_tx_mapping.pop(client_order_id, None)
+
+    async def _handle_transaction_timeout(self, client_order_id: str, tx_hash: str):
+        """Handle transaction timeout."""
+        self.logger().warning(f"⏰ Transaction timeout for order {client_order_id}: {tx_hash[:10]}...")
+
+        # Check if order is still being tracked
+        if hasattr(self, "_order_tracker") and client_order_id in self._order_tracker.active_orders:
+            order = self._order_tracker.active_orders[client_order_id]
+
+            # Update order to failed state
+            order_update = OrderUpdate(
+                client_order_id=client_order_id,
+                trading_pair=order.trading_pair,
+                update_timestamp=self.current_timestamp,
+                new_state=OrderState.FAILED,
+                misc_updates={
+                    "error_message": "Transaction timeout - may be stuck in mempool",
+                    "error_type": "TRANSACTION_TIMEOUT",
+                    "tx_hash": tx_hash,
+                    "timeout_duration": "10 minutes",
+                },
+            )
+            self._order_tracker.process_order_update(order_update)
+            self.logger().error(f"Order {client_order_id} marked as failed due to transaction timeout")
+
+    async def _handle_transaction_success(self, client_order_id: str, tx_hash: str, receipt):
+        """Handle successful transaction confirmation with detailed analysis."""
+        try:
+            # Extract detailed transaction information
+            tx_details = self._analyze_transaction_receipt(receipt, tx_hash)
+
+            # Log comprehensive success information
+            self.logger().info(
+                f"🎉 Transaction confirmed successfully: {client_order_id} | "
+                f"TX: {tx_hash[:10]}... | "
+                f"Gas used: {tx_details.get('gas_used', 'unknown')} | "
+                f"Block: {tx_details.get('block_number', 'unknown')} | "
+                f"Fee: {tx_details.get('transaction_fee', 'unknown')} ETH"
+            )
+
+            # Extract order ID if available
+            order_id = await self._extract_order_id_from_transaction_receipt(tx_hash)
+            if order_id and order_id != "IMMEDIATELY_FILLED":
+                self.logger().info(f"📋 Blockchain order ID extracted: {order_id} for {client_order_id}")
+                # Update order mapping with extracted ID
+                if client_order_id in self._order_id_map:
+                    self._order_id_map[client_order_id]["blockchain_order_id"] = order_id
+
+            # Record transaction metrics
+            self._record_transaction_metrics(client_order_id, tx_hash, "success", tx_details)
+
+            # Emit success event for external monitoring
+            self._emit_transaction_event(
+                "transaction_confirmed",
+                {
+                    "client_order_id": client_order_id,
+                    "tx_hash": tx_hash,
+                    "gas_used": tx_details.get("gas_used"),
+                    "block_number": tx_details.get("block_number"),
+                    "transaction_fee": tx_details.get("transaction_fee"),
+                },
+            )
+
+        except Exception as e:
+            self.logger().error(f"Error processing successful transaction {tx_hash}: {e}")
+
+    async def _handle_transaction_failure(self, client_order_id: str, tx_hash: str, receipt):
+        """Handle failed transaction with comprehensive error analysis."""
+        try:
+            # Analyze failure details
+            failure_details = self._analyze_transaction_failure(receipt, tx_hash)
+
+            # Log comprehensive failure information
+            self.logger().error(
+                f"💥 Transaction failed: {client_order_id} | "
+                f"TX: {tx_hash[:10]}... | "
+                f"Reason: {failure_details.get('failure_reason', 'unknown')} | "
+                f"Gas used: {failure_details.get('gas_used', 'unknown')} | "
+                f"Gas limit: {failure_details.get('gas_limit', 'unknown')} | "
+                f"Error code: {failure_details.get('error_code', 'none')}"
+            )
+
+            # Categorize failure for better handling
+            failure_category = self._categorize_transaction_failure(failure_details)
+            self.logger().error(f"🏷️  Failure category: {failure_category}")
+
+            # Record failure metrics
+            self._record_transaction_metrics(client_order_id, tx_hash, "failed", failure_details)
+
+            # Suggest recovery action
+            recovery_action = self._suggest_recovery_action(failure_category, failure_details)
+            if recovery_action:
+                self.logger().warning(f"💡 Suggested action: {recovery_action}")
+
+            # Emit failure event for external monitoring
+            self._emit_transaction_event(
+                "transaction_failed",
+                {
+                    "client_order_id": client_order_id,
+                    "tx_hash": tx_hash,
+                    "failure_reason": failure_details.get("failure_reason"),
+                    "failure_category": failure_category,
+                    "gas_used": failure_details.get("gas_used"),
+                    "suggested_action": recovery_action,
+                },
+            )
+
+        except Exception as e:
+            self.logger().error(f"Error processing failed transaction {tx_hash}: {e}")
+
+    def get_order_blockchain_status(self, client_order_id: str) -> Dict:
+        """Get blockchain-specific status info for an order."""
+        tx_hash = self._order_tx_mapping.get(client_order_id)
+
+        if not tx_hash:
+            return {"status": "not_found", "message": "Order not found in blockchain tracking"}
+
+        if tx_hash in self._pending_tx_hashes:
+            tx_info = self._pending_tx_hashes[tx_hash]
+            return {
+                "status": "pending",
+                "tx_hash": tx_hash,
+                "submitted_at": tx_info["timestamp"],
+                "order_type": tx_info.get("order_type", "unknown"),
+                "message": "Transaction submitted to blockchain, awaiting confirmation",
+            }
+
+        # Check if order is in active orders with blockchain info
+        if hasattr(self, "_order_tracker") and client_order_id in self._order_tracker.active_orders:
+            order = self._order_tracker.active_orders[client_order_id]
+            if hasattr(order, "misc_updates") and order.misc_updates:
+                misc = order.misc_updates
+                if misc.get("blockchain_confirmed"):
+                    return {
+                        "status": "confirmed",
+                        "tx_hash": misc.get("tx_hash"),
+                        "gas_used": misc.get("gas_used"),
+                        "block_number": misc.get("block_number"),
+                        "message": "Transaction confirmed on blockchain",
+                    }
+
+        return {
+            "status": "unknown",
+            "tx_hash": tx_hash,
+            "message": "Transaction status unknown - may have been processed",
+        }
+
+    # 🎯 PHASE 4: Enhanced Error Analysis & Reporting Methods
+
+    def _analyze_transaction_receipt(self, receipt, tx_hash: str) -> Dict:
+        """Analyze transaction receipt for detailed information."""
+        try:
+            details = {
+                "tx_hash": tx_hash,
+                "status": getattr(receipt, "status", None),
+                "block_number": getattr(receipt, "blockNumber", None),
+                "gas_used": getattr(receipt, "gasUsed", None),
+                "gas_limit": None,  # Will try to get from original transaction
+                "transaction_fee": None,
+            }
+
+            # Calculate transaction fee if possible
+            if hasattr(receipt, "gasUsed") and hasattr(receipt, "effectiveGasPrice"):
+                gas_used = receipt.gasUsed
+                gas_price = receipt.effectiveGasPrice
+                fee_wei = gas_used * gas_price
+                fee_eth = fee_wei / (10**18)  # Convert wei to ETH
+                details["transaction_fee"] = fee_eth
+
+            return details
+
+        except Exception as e:
+            self.logger().error(f"Error analyzing transaction receipt {tx_hash}: {e}")
+            return {"tx_hash": tx_hash, "error": str(e)}
+
+    def _analyze_transaction_failure(self, receipt, tx_hash: str) -> Dict:
+        """Analyze failed transaction for detailed failure information."""
+        try:
+            failure_details = self._analyze_transaction_receipt(receipt, tx_hash)
+
+            # Add failure-specific analysis
+            failure_details.update(
+                {"failure_reason": "Transaction reverted", "error_code": None, "revert_reason": None}
+            )
+
+            # Try to get more specific failure reason
+            if hasattr(receipt, "status") and receipt.status == 0:
+                failure_details["failure_reason"] = "Transaction reverted (status=0)"
+
+                # Check for common failure patterns
+                gas_used = getattr(receipt, "gasUsed", 0)
+                if gas_used > 0:
+                    # Transaction used gas but failed - likely a revert
+                    failure_details["failure_reason"] = "Smart contract execution reverted"
+
+                    # Try to decode revert reason if available
+                    try:
+                        # This would require additional Web3 setup to decode revert reasons
+                        # For now, just note that it's available
+                        failure_details["revert_reason"] = "Revert reason decoding not implemented"
+                    except Exception:
+                        pass
+                else:
+                    failure_details["failure_reason"] = "Transaction failed before execution"
+
+            return failure_details
+
+        except Exception as e:
+            self.logger().error(f"Error analyzing transaction failure {tx_hash}: {e}")
+            return {"tx_hash": tx_hash, "failure_reason": "Analysis failed", "error": str(e)}
+
+    def _categorize_transaction_failure(self, failure_details: Dict) -> str:
+        """Categorize transaction failure for better error handling."""
+        try:
+            failure_reason = failure_details.get("failure_reason", "").lower()
+            gas_used = failure_details.get("gas_used", 0)
+
+            # Gas-related failures
+            if "out of gas" in failure_reason or "gas" in failure_reason:
+                return "gas_issue"
+
+            # Smart contract reverts
+            if "revert" in failure_reason or "execution reverted" in failure_reason:
+                # Check for specific revert reasons
+                if "insufficient" in failure_reason or "balance" in failure_reason:
+                    return "insufficient_balance"
+                elif gas_used > 0:
+                    return "contract_revert"
+                else:
+                    return "pre_execution_failure"
+
+            # Network issues
+            if "network" in failure_reason or "connection" in failure_reason:
+                return "network_issue"
+
+            # Insufficient balance
+            if "insufficient" in failure_reason or "balance" in failure_reason:
+                return "insufficient_balance"
+
+            # Nonce issues
+            if "nonce" in failure_reason:
+                return "nonce_issue"
+
+            # Generic categorization based on status
+            if failure_details.get("status") == 0:
+                return "transaction_reverted"
+
+            return "unknown_failure"
+
+        except Exception as e:
+            self.logger().error(f"Error categorizing failure: {e}")
+            return "categorization_error"
+
+    def _suggest_recovery_action(self, failure_category: str, failure_details: Dict) -> Optional[str]:
+        """Suggest recovery action based on failure category."""
+        try:
+            suggestions = {
+                "gas_issue": "Consider increasing gas limit or gas price for future transactions",
+                "contract_revert": "Check order parameters (price, amount, balance) and market conditions",
+                "insufficient_balance": "Ensure sufficient token balance and allowances before placing orders",
+                "nonce_issue": "Nonce synchronization issue - will be handled automatically on retry",
+                "network_issue": "Network connectivity problem - will retry automatically",
+                "pre_execution_failure": "Pre-execution validation failed - check order parameters",
+                "transaction_reverted": "Transaction was rejected by smart contract - verify order conditions",
+            }
+
+            return suggestions.get(failure_category, "Review transaction details and retry if appropriate")
+
+        except Exception as e:
+            self.logger().error(f"Error generating recovery suggestion: {e}")
+            return None
+
+    def _record_transaction_metrics(self, client_order_id: str, tx_hash: str, status: str, details: Dict):
+        """Record transaction metrics for performance monitoring."""
+        try:
+            # Initialize metrics storage if not exists
+            if not hasattr(self, "_transaction_metrics"):
+                self._transaction_metrics = {
+                    "total_transactions": 0,
+                    "successful_transactions": 0,
+                    "failed_transactions": 0,
+                    "total_gas_used": 0,
+                    "total_fees_paid": 0,
+                    "failure_categories": {},
+                    "recent_transactions": [],  # Keep last 100 transactions
+                }
+
+            metrics = self._transaction_metrics
+
+            # Update counters
+            metrics["total_transactions"] += 1
+            if status == "success":
+                metrics["successful_transactions"] += 1
+            elif status == "failed":
+                metrics["failed_transactions"] += 1
+
+                # Track failure categories
+                category = self._categorize_transaction_failure(details)
+                metrics["failure_categories"][category] = metrics["failure_categories"].get(category, 0) + 1
+
+            # Track gas usage
+            gas_used = details.get("gas_used", 0)
+            if gas_used:
+                metrics["total_gas_used"] += gas_used
+
+            # Track fees
+            fee = details.get("transaction_fee", 0)
+            if fee:
+                metrics["total_fees_paid"] += fee
+
+            # Keep recent transaction log (limited to 100)
+            transaction_record = {
+                "timestamp": time.time(),
+                "client_order_id": client_order_id,
+                "tx_hash": tx_hash[:10] + "...",
+                "status": status,
+                "gas_used": gas_used,
+                "fee": fee,
+            }
+
+            metrics["recent_transactions"].append(transaction_record)
+            if len(metrics["recent_transactions"]) > 100:
+                metrics["recent_transactions"] = metrics["recent_transactions"][-100:]
+
+        except Exception as e:
+            self.logger().error(f"Error recording transaction metrics: {e}")
+
+    def _emit_transaction_event(self, event_type: str, event_data: Dict):
+        """Emit transaction event for external monitoring systems."""
+        try:
+            # This could be extended to integrate with monitoring systems
+            # For now, just log the event in a structured format
+            self.logger().info(
+                f"📊 TRANSACTION_EVENT: {event_type} | "
+                f"Order: {event_data.get('client_order_id', 'unknown')} | "
+                f"TX: {event_data.get('tx_hash', 'unknown')[:10]}... | "
+                f"Data: {event_data}"
+            )
+
+            # Future enhancement: Could integrate with external monitoring
+            # systems like DataDog, Grafana, or custom dashboards
+
+        except Exception as e:
+            self.logger().error(f"Error emitting transaction event: {e}")
+
+    def get_transaction_metrics(self) -> Dict:
+        """Get comprehensive transaction metrics for monitoring."""
+        try:
+            if not hasattr(self, "_transaction_metrics"):
+                return {
+                    "total_transactions": 0,
+                    "successful_transactions": 0,
+                    "failed_transactions": 0,
+                    "success_rate": 0.0,
+                    "total_gas_used": 0,
+                    "total_fees_paid": 0,
+                    "average_gas_per_tx": 0.0,
+                    "failure_categories": {},
+                    "recent_transactions": [],
+                }
+
+            metrics = self._transaction_metrics.copy()
+
+            # Calculate derived metrics
+            total_tx = metrics["total_transactions"]
+            if total_tx > 0:
+                metrics["success_rate"] = (metrics["successful_transactions"] / total_tx) * 100
+                metrics["failure_rate"] = (metrics["failed_transactions"] / total_tx) * 100
+                metrics["average_gas_per_tx"] = metrics["total_gas_used"] / total_tx
+                metrics["average_fee_per_tx"] = metrics["total_fees_paid"] / total_tx
+            else:
+                metrics["success_rate"] = 0.0
+                metrics["failure_rate"] = 0.0
+                metrics["average_gas_per_tx"] = 0.0
+                metrics["average_fee_per_tx"] = 0.0
+
+            return metrics
+
+        except Exception as e:
+            self.logger().error(f"Error getting transaction metrics: {e}")
+            return {"error": str(e)}
+
+    def get_error_summary(self) -> Dict:
+        """Get comprehensive error summary for debugging."""
+        try:
+            metrics = self.get_transaction_metrics()
+
+            summary = {
+                "transaction_health": {
+                    "total_transactions": metrics.get("total_transactions", 0),
+                    "success_rate": f"{metrics.get('success_rate', 0):.2f}%",
+                    "failure_rate": f"{metrics.get('failure_rate', 0):.2f}%",
+                    "recent_failures": len(
+                        [tx for tx in metrics.get("recent_transactions", []) if tx.get("status") == "failed"]
+                    ),
+                },
+                "gas_efficiency": {
+                    "total_gas_used": metrics.get("total_gas_used", 0),
+                    "average_gas_per_tx": f"{metrics.get('average_gas_per_tx', 0):.0f}",
+                    "total_fees_paid": f"{metrics.get('total_fees_paid', 0):.6f} ETH",
+                },
+                "failure_analysis": metrics.get("failure_categories", {}),
+                "recent_issues": [
+                    tx for tx in metrics.get("recent_transactions", [])[-10:] if tx.get("status") == "failed"
+                ],
+                "monitoring_status": {
+                    "monitoring_active": hasattr(self, "_tx_monitor_task")
+                    and self._tx_monitor_task
+                    and not self._tx_monitor_task.done(),
+                    "pending_transactions": len(self._pending_tx_hashes),
+                    "tracked_orders": len(self._order_tx_mapping),
+                },
+            }
+
+            return summary
+
+        except Exception as e:
+            self.logger().error(f"Error generating error summary: {e}")
+            return {"error": str(e)}
 
     async def start_network(self):
         """
@@ -371,13 +1010,212 @@ class StandardExchange(ExchangePyBase):
             await super().start_network()
             self.logger().info("DEBUG: super().start_network() completed successfully")
 
-            self.logger().info("Somnia network started successfully")
+            # 🔄 PHASE 3: Start transaction monitoring
+            await self._start_tx_monitoring()
+
+            self.logger().info("🎉 Somnia network started successfully")
         except Exception as e:
-            self.logger().error("DEBUG: Exception in start_network(): {e}")
+            self.logger().error(f"DEBUG: Exception in start_network(): {e}")
             self.logger().error(f"Failed to start Somnia network: {e}")
             self.logger().exception("Full traceback:")
             # Don't raise - let the system continue
             pass
+
+    async def stop_network(self):
+        """
+        Stop network and cleanup resources when connector shuts down.
+        This method is called during connector shutdown.
+        """
+        try:
+            self.logger().info("🛑 Stopping Somnia network...")
+
+            # Stop transaction monitoring first
+            await self._stop_tx_monitoring()
+
+            # Call parent's stop_network to cleanup all background tasks
+            await super().stop_network()
+
+            self.logger().info("✅ Somnia network stopped successfully")
+
+        except Exception as e:
+            self.logger().error(f"Error stopping Somnia network: {e}")
+            # Still call parent's stop_network to ensure proper cleanup
+            try:
+                await super().stop_network()
+            except Exception as parent_error:
+                self.logger().error(f"Error in parent stop_network: {parent_error}")
+
+    async def cancel_all(self, timeout_seconds: float) -> List:
+        """
+        Cancel all active orders with timeout support.
+        Enhanced version that leverages our blockchain transaction tracking.
+
+        Args:
+            timeout_seconds: Maximum time to wait for cancellations
+
+        Returns:
+            List of cancellation results
+        """
+        try:
+            from hummingbot.core.data_type.cancellation_result import CancellationResult
+
+            self.logger().info(f"🚫 Cancelling all orders with {timeout_seconds}s timeout...")
+
+            # Get all active orders
+            active_orders = list(self._order_tracker.active_orders.values())
+            if not active_orders:
+                self.logger().info("No active orders to cancel")
+                return []
+
+            self.logger().info(f"Found {len(active_orders)} active orders to cancel")
+
+            # Track cancellation start time
+            start_time = time.time()
+            cancellation_results = []
+
+            # Cancel all orders concurrently
+            cancel_tasks = []
+            for order in active_orders:
+                task = asyncio.create_task(self._execute_order_cancel_and_process_update(order))
+                cancel_tasks.append((order, task))
+
+            # Wait for cancellations with timeout
+            completed_tasks = []
+            timeout_tasks = []
+
+            for order, task in cancel_tasks:
+                try:
+                    # Wait for each cancellation with remaining timeout
+                    remaining_timeout = timeout_seconds - (time.time() - start_time)
+                    if remaining_timeout <= 0:
+                        timeout_tasks.append((order, task))
+                        continue
+
+                    success = await asyncio.wait_for(task, timeout=remaining_timeout)
+                    completed_tasks.append((order, success))
+
+                    result = CancellationResult(order_id=order.client_order_id, success=success)
+                    cancellation_results.append(result)
+
+                except asyncio.TimeoutError:
+                    timeout_tasks.append((order, task))
+                    self.logger().warning(f"⏰ Cancellation timeout for order {order.client_order_id}")
+
+                except Exception as e:
+                    self.logger().error(f"❌ Error cancelling order {order.client_order_id}: {e}")
+                    result = CancellationResult(order_id=order.client_order_id, success=False)
+                    cancellation_results.append(result)
+
+            # Handle timeout tasks
+            for order, task in timeout_tasks:
+                task.cancel()
+                result = CancellationResult(order_id=order.client_order_id, success=False)
+                cancellation_results.append(result)
+
+            # Summary
+            successful_cancellations = sum(1 for r in cancellation_results if r.success)
+            total_time = time.time() - start_time
+
+            self.logger().info(
+                f"📊 Cancellation complete: {successful_cancellations}/{len(active_orders)} "
+                f"successful in {total_time:.2f}s"
+            )
+
+            return cancellation_results
+
+        except Exception as e:
+            self.logger().error(f"Error in cancel_all: {e}")
+            return []
+
+    def batch_order_cancel(self, orders_to_cancel: List) -> None:
+        """
+        Batch cancel orders for improved efficiency.
+        Initiates cancellation of multiple orders simultaneously.
+
+        Args:
+            orders_to_cancel: List of LimitOrder objects to cancel
+        """
+        try:
+            if not orders_to_cancel:
+                return
+
+            self.logger().info(f"📦 Batch cancelling {len(orders_to_cancel)} orders...")
+
+            # Convert to async cancellation tasks
+            for order in orders_to_cancel:
+                # Find the tracked order
+                tracked_order = self._order_tracker.fetch_order(order.client_order_id)
+                if tracked_order:
+                    # Use our async cancellation system
+                    asyncio.create_task(self._execute_order_cancel_and_process_update(tracked_order))
+                else:
+                    self.logger().warning(f"Order {order.client_order_id} not found in tracker")
+
+            self.logger().info(f"✅ Initiated batch cancellation of {len(orders_to_cancel)} orders")
+
+        except Exception as e:
+            self.logger().error(f"Error in batch_order_cancel: {e}")
+
+    async def get_all_pairs_prices(self) -> List[Dict[str, str]]:
+        """
+        Get current prices for all trading pairs.
+        Used for price discovery and arbitrage opportunities.
+
+        Returns:
+            List of price dictionaries with format:
+            [{"symbol": "STT-USDC", "price": "1.25"}, ...]
+        """
+        try:
+            self.logger().debug("Fetching all pairs prices...")
+
+            pairs_prices = []
+
+            # Get prices for all configured trading pairs
+            for trading_pair in self._trading_pairs:
+                try:
+                    # Use our enhanced quote price method
+                    # Get a small amount to get current market price
+                    quote_amount = Decimal("1.0")
+
+                    # Get both buy and sell prices for spread information
+                    buy_price = await self.get_quote_price(trading_pair, is_buy=True, amount=quote_amount)
+                    sell_price = await self.get_quote_price(trading_pair, is_buy=False, amount=quote_amount)
+
+                    # Use mid-price as the representative price
+                    if buy_price > 0 and sell_price > 0:
+                        mid_price = (buy_price + sell_price) / 2
+                    elif buy_price > 0:
+                        mid_price = buy_price
+                    elif sell_price > 0:
+                        mid_price = sell_price
+                    else:
+                        # Fallback to order book data if available
+                        mid_price = await self._get_last_traded_price(trading_pair)
+
+                    if mid_price > 0:
+                        pairs_prices.append(
+                            {
+                                "symbol": trading_pair,
+                                "price": str(mid_price),
+                                "buy_price": str(buy_price) if buy_price > 0 else None,
+                                "sell_price": str(sell_price) if sell_price > 0 else None,
+                                "timestamp": str(self.current_timestamp),
+                            }
+                        )
+
+                    self.logger().debug(f"Price for {trading_pair}: {mid_price}")
+
+                except Exception as pair_error:
+                    self.logger().warning(f"Failed to get price for {trading_pair}: {pair_error}")
+                    # Continue with other pairs
+                    continue
+
+            self.logger().info(f"📈 Retrieved prices for {len(pairs_prices)}/{len(self._trading_pairs)} trading pairs")
+            return pairs_prices
+
+        except Exception as e:
+            self.logger().error(f"Error getting all pairs prices: {e}")
+            return []
 
     async def build_exchange_market_info(self) -> Dict[str, Any]:
         """
@@ -448,7 +1286,8 @@ class StandardExchange(ExchangePyBase):
             self.logger().info("DEBUG: _initialize_trading_pair_symbol_map() called")
             exchange_info = await self.build_exchange_market_info()
             self.logger().info(
-                "DEBUG: build_exchange_market_info() returned: {type(exchange_info)} with keys: {list(exchange_info.keys()) if isinstance(exchange_info, dict) else 'NOT_DICT'}")
+                "DEBUG: build_exchange_market_info() returned: {type(exchange_info)} with keys: {list(exchange_info.keys()) if isinstance(exchange_info, dict) else 'NOT_DICT'}"
+            )
             self.logger().info("DEBUG: About to call _initialize_trading_pair_symbols_from_exchange_info")
             self._initialize_trading_pair_symbols_from_exchange_info(exchange_info=exchange_info)
             self.logger().info("DEBUG: _initialize_trading_pair_symbols_from_exchange_info completed")
@@ -552,7 +1391,8 @@ class StandardExchange(ExchangePyBase):
             self.logger().info(f"  - self._trading_pairs = {self._trading_pairs}")
             self.logger().info(f"  - self._trading_required = {self._trading_required}")
             self.logger().info(
-                f"  - len(self._trading_pairs) = {len(self._trading_pairs) if self._trading_pairs else 0}")
+                f"  - len(self._trading_pairs) = {len(self._trading_pairs) if self._trading_pairs else 0}"
+            )
 
             # If this is a non-trading connector (used for connection testing),
             # return empty list to avoid any processing
@@ -597,9 +1437,13 @@ class StandardExchange(ExchangePyBase):
 
             # In trading mode, we should have symbols configured by the strategy
             if not symbols and self._trading_required:
-                self.logger().error("CRITICAL: Trading mode requires configured trading pairs but none were successfully processed")
+                self.logger().error(
+                    "CRITICAL: Trading mode requires configured trading pairs but none were successfully processed"
+                )
                 self.logger().error(f"  Original trading pairs: {self._trading_pairs}")
-                self.logger().error("  This indicates a configuration problem - the strategy should provide valid trading pairs")
+                self.logger().error(
+                    "  This indicates a configuration problem - the strategy should provide valid trading pairs"
+                )
                 # Don't hardcode - return empty and let the system handle the error properly
                 return []
 
@@ -747,6 +1591,7 @@ class StandardExchange(ExchangePyBase):
 
         # Log call stack to see who's calling this
         import traceback
+
         stack = traceback.format_stack()
         self.logger().info("DEBUG: update_trading_pairs call stack (last 3 frames):")
         for i, frame in enumerate(stack[-3:]):
@@ -757,9 +1602,9 @@ class StandardExchange(ExchangePyBase):
             self._trading_pairs = trading_pairs
 
             # Update order book data source if it exists
-            if hasattr(self, '_order_book_tracker') and self._order_book_tracker:
+            if hasattr(self, "_order_book_tracker") and self._order_book_tracker:
                 self.logger().info("DEBUG: Updating order book tracker data source...")
-                if hasattr(self._order_book_tracker, 'data_source') and self._order_book_tracker.data_source:
+                if hasattr(self._order_book_tracker, "data_source") and self._order_book_tracker.data_source:
                     self._order_book_tracker.data_source.update_trading_pairs(trading_pairs)
                     self.logger().info("DEBUG: Order book data source updated")
                 else:
@@ -770,12 +1615,15 @@ class StandardExchange(ExchangePyBase):
             # Re-initialize trading rules for new pairs
             try:
                 import asyncio
+
                 if asyncio.get_event_loop().is_running():
                     self.logger().info("DEBUG: Event loop running, creating task for trading rules update")
                     asyncio.create_task(self._update_trading_rules_for_new_pairs(trading_pairs))
                 else:
                     # If no event loop is running, schedule for later
-                    self.logger().info("DEBUG: No event loop running, trading rules will be updated when connector starts")
+                    self.logger().info(
+                        "DEBUG: No event loop running, trading rules will be updated when connector starts"
+                    )
             except Exception as e:
                 self.logger().warning("DEBUG: Could not update trading rules immediately: {e}")
         elif not trading_pairs:
@@ -784,7 +1632,8 @@ class StandardExchange(ExchangePyBase):
             self.logger().info(f"SKIPPING: Trading pairs unchanged: {trading_pairs}")
         else:
             self.logger().warning(
-                f"SKIPPING: Unexpected condition - trading_pairs: {trading_pairs}, current: {self._trading_pairs}")
+                f"SKIPPING: Unexpected condition - trading_pairs: {trading_pairs}, current: {self._trading_pairs}"
+            )
 
         self.logger().info("=== DEBUG: update_trading_pairs COMPLETED ===")
         self.logger().info(f"  Final trading_pairs: {self._trading_pairs}")
@@ -795,15 +1644,17 @@ class StandardExchange(ExchangePyBase):
             symbols = []
             for trading_pair in trading_pairs:
                 base, quote = trading_pair.split("-")
-                symbols.append({
-                    "symbol": trading_pair,
-                    "baseAsset": base,
-                    "quoteAsset": quote,
-                    "status": "TRADING",
-                    "baseAssetPrecision": 8,
-                    "quotePrecision": 8,
-                    "orderTypes": ["LIMIT", "MARKET"],
-                })
+                symbols.append(
+                    {
+                        "symbol": trading_pair,
+                        "baseAsset": base,
+                        "quoteAsset": quote,
+                        "status": "TRADING",
+                        "baseAssetPrecision": 8,
+                        "quotePrecision": 8,
+                        "orderTypes": ["LIMIT", "MARKET"],
+                    }
+                )
 
             await self._initialize_trading_rules_from_symbols(symbols)
             self.logger().info("Updated trading rules for {len(trading_pairs)} trading pairs")
@@ -979,23 +1830,27 @@ class StandardExchange(ExchangePyBase):
         for trading_pair in CONSTANTS.TRADING_PAIRS_PER_DOMAIN[self._domain]:
             base, quote = utils.split_trading_pair(trading_pair)
 
-            trading_pairs_data.append({
-                "symbol": trading_pair,
-                "baseAsset": base,
-                "quoteAsset": quote,
-                "status": "TRADING",
-            })
+            trading_pairs_data.append(
+                {
+                    "symbol": trading_pair,
+                    "baseAsset": base,
+                    "quoteAsset": quote,
+                    "status": "TRADING",
+                }
+            )
 
         return trading_pairs_data
 
-    def _get_fee(self,
-                 base_currency: str,
-                 quote_currency: str,
-                 order_type: OrderType,
-                 order_side: TradeType,
-                 amount: Decimal,
-                 price: Decimal = s_decimal_NaN,
-                 is_maker: Optional[bool] = None) -> TradeFeeBase:
+    def _get_fee(
+        self,
+        base_currency: str,
+        quote_currency: str,
+        order_type: OrderType,
+        order_side: TradeType,
+        amount: Decimal,
+        price: Decimal = s_decimal_NaN,
+        is_maker: Optional[bool] = None,
+    ) -> TradeFeeBase:
         """
         Calculate trading fee for an order.
 
@@ -1048,7 +1903,7 @@ class StandardExchange(ExchangePyBase):
 
             # Get current nonce from blockchain
             current_nonce = await asyncio.get_event_loop().run_in_executor(
-                None, w3.eth.get_transaction_count, self._wallet_address, 'pending'
+                None, w3.eth.get_transaction_count, self._wallet_address, "pending"
             )
 
             # Use the higher of current blockchain nonce or our tracked nonce
@@ -1059,7 +1914,8 @@ class StandardExchange(ExchangePyBase):
             self._last_nonce = final_nonce + 1
 
             self.logger().debug(
-                f"Nonce management: blockchain={current_nonce}, tracked={self._last_nonce - 1}, using={final_nonce}")
+                f"Nonce management: blockchain={current_nonce}, tracked={self._last_nonce - 1}, using={final_nonce}"
+            )
             return final_nonce
 
         except Exception as e:
@@ -1068,7 +1924,9 @@ class StandardExchange(ExchangePyBase):
             self._last_nonce += 1
             return self._last_nonce
 
-    async def _ensure_token_allowances(self, base_address: str, quote_address: str, amount: Decimal, price: Decimal, is_buy: bool):
+    async def _ensure_token_allowances(
+        self, base_address: str, quote_address: str, amount: Decimal, price: Decimal, is_buy: bool
+    ):
         """
         Ensure sufficient token allowances before placing orders.
 
@@ -1094,24 +1952,18 @@ class StandardExchange(ExchangePyBase):
             erc20_abi = [
                 {
                     "constant": True,
-                    "inputs": [
-                        {"name": "_owner", "type": "address"},
-                        {"name": "_spender", "type": "address"}
-                    ],
+                    "inputs": [{"name": "_owner", "type": "address"}, {"name": "_spender", "type": "address"}],
                     "name": "allowance",
                     "outputs": [{"name": "", "type": "uint256"}],
-                    "type": "function"
+                    "type": "function",
                 },
                 {
                     "constant": False,
-                    "inputs": [
-                        {"name": "_spender", "type": "address"},
-                        {"name": "_value", "type": "uint256"}
-                    ],
+                    "inputs": [{"name": "_spender", "type": "address"}, {"name": "_value", "type": "uint256"}],
                     "name": "approve",
                     "outputs": [{"name": "", "type": "bool"}],
-                    "type": "function"
-                }
+                    "type": "function",
+                },
             ]
 
             exchange_address = CONSTANTS.DOMAIN_CONFIG[self._domain]["standard_exchange_address"]
@@ -1122,13 +1974,13 @@ class StandardExchange(ExchangePyBase):
                 # For buy orders, need allowance for quote token (USDC)
                 token_address = quote_address
                 quote_decimals = utils.get_token_decimals(utils.convert_address_to_symbol(quote_address, self._domain))
-                required_amount = int((amount * price) * (10 ** quote_decimals))
+                required_amount = int((amount * price) * (10**quote_decimals))
                 token_symbol = utils.convert_address_to_symbol(quote_address, self._domain)
             else:
                 # For sell orders, need allowance for base token (SOMI)
                 token_address = base_address
                 base_decimals = utils.get_token_decimals(utils.convert_address_to_symbol(base_address, self._domain))
-                required_amount = int(amount * (10 ** base_decimals))
+                required_amount = int(amount * (10**base_decimals))
                 token_symbol = utils.convert_address_to_symbol(base_address, self._domain)
 
             # Skip allowance check for native tokens
@@ -1137,16 +1989,14 @@ class StandardExchange(ExchangePyBase):
                 return
 
             # Create contract instance
-            contract = w3.eth.contract(
-                address=w3.to_checksum_address(token_address),
-                abi=erc20_abi
-            )
+            contract = w3.eth.contract(address=w3.to_checksum_address(token_address), abi=erc20_abi)
 
             # Check current allowance
             current_allowance = contract.functions.allowance(wallet_address, exchange_checksum).call()
 
             self.logger().info(
-                f"Token allowance check for {token_symbol}: current={current_allowance}, required={required_amount}")
+                f"Token allowance check for {token_symbol}: current={current_allowance}, required={required_amount}"
+            )
 
             if current_allowance < required_amount:
                 self.logger().info(f"Insufficient allowance for {token_symbol}. Approving {required_amount}...")
@@ -1165,25 +2015,28 @@ class StandardExchange(ExchangePyBase):
 
                 # Get gas estimate
                 try:
-                    gas_estimate = approve_function.estimate_gas({'from': wallet_address})
+                    gas_estimate = approve_function.estimate_gas({"from": wallet_address})
                     gas_limit = int(gas_estimate * 1.2)  # Add 20% buffer
                 except Exception as e:
                     self.logger().warning(f"Could not estimate gas for approval: {e}, using default")
                     gas_limit = 100000  # Default gas limit for ERC20 approval
 
                 # Get current nonce
-                nonce = w3.eth.get_transaction_count(wallet_address, 'pending')
+                nonce = w3.eth.get_transaction_count(wallet_address, "pending")
 
                 # Build transaction
-                transaction = approve_function.build_transaction({
-                    'from': wallet_address,
-                    'gas': gas_limit,
-                    'gasPrice': w3.eth.gas_price,
-                    'nonce': nonce,
-                })
+                transaction = approve_function.build_transaction(
+                    {
+                        "from": wallet_address,
+                        "gas": gas_limit,
+                        "gasPrice": w3.eth.gas_price,
+                        "nonce": nonce,
+                    }
+                )
 
                 # Sign transaction
                 from eth_account import Account
+
                 signed_txn = Account.sign_transaction(transaction, self._private_key)
 
                 # Send transaction
@@ -1194,6 +2047,7 @@ class StandardExchange(ExchangePyBase):
 
                 # Wait for transaction confirmation
                 import asyncio
+
                 receipt = None
                 for i in range(30):  # Wait up to 30 seconds
                     try:
@@ -1222,9 +2076,14 @@ class StandardExchange(ExchangePyBase):
             self.logger().error(f"Error checking/ensuring token allowances: {e}")
             raise
 
-    async def _check_sufficient_balance(self, base_address: str, quote_address: str, amount: Decimal, price: Decimal, is_buy: bool):
+    async def _check_sufficient_balance(
+        self, base_address: str, quote_address: str, amount: Decimal, price: Decimal, is_buy: bool
+    ):
         """
         Check if wallet has sufficient token balance before placing orders.
+        Uses already-fetched balance data from _update_balances() to avoid redundant Web3 calls.
+
+        Special handling for native token sales: ensures we have enough for BOTH the sale amount AND gas fees.
 
         Args:
             base_address: Base token address
@@ -1234,84 +2093,92 @@ class StandardExchange(ExchangePyBase):
             is_buy: Whether this is a buy order
         """
         try:
-            from web3 import Web3
-
-            # Create Web3 instance
-            rpc_url = CONSTANTS.DOMAIN_CONFIG[self._domain]["rpc_url"]
-            w3 = Web3(Web3.HTTPProvider(rpc_url))
-
-            if not w3.is_connected():
-                self.logger().warning("Failed to connect to RPC for balance check")
-                return
-
-            # Standard ERC-20 balance ABI
-            erc20_abi = [
-                {
-                    "constant": True,
-                    "inputs": [{"name": "_owner", "type": "address"}],
-                    "name": "balanceOf",
-                    "outputs": [{"name": "balance", "type": "uint256"}],
-                    "type": "function"
-                }
-            ]
-
-            wallet_address = w3.to_checksum_address(self._wallet_address)
-
             if is_buy:
                 # For buy orders, need sufficient quote token (USDC) balance
-                token_address = quote_address
-                quote_decimals = utils.get_token_decimals(utils.convert_address_to_symbol(quote_address, self._domain))
-                required_amount = int((amount * price) * (10 ** quote_decimals))
                 token_symbol = utils.convert_address_to_symbol(quote_address, self._domain)
+                quote_decimals = utils.get_token_decimals(token_symbol)
+                required_amount_decimal = amount * price
+
+                # Standard balance check for quote token (no gas fee consideration)
+                current_balance_decimal = self.get_balance(token_symbol)
+
             else:
-                # For sell orders, need sufficient base token (SOMI) balance
-                token_address = base_address
-                base_decimals = utils.get_token_decimals(utils.convert_address_to_symbol(base_address, self._domain))
-                required_amount = int(amount * (10 ** base_decimals))
+                # For sell orders, need sufficient base token balance
                 token_symbol = utils.convert_address_to_symbol(base_address, self._domain)
+                base_decimals = utils.get_token_decimals(token_symbol)
+                required_amount_decimal = amount
 
-            # Check balance for native tokens (SOMI, ETH, SOMNIA, STT)
-            if token_symbol.upper() in CONSTANTS.NATIVE_TOKEN_LIST:
-                current_balance = w3.eth.get_balance(wallet_address)
-                self.logger().info(
-                    f"Native token balance check for {token_symbol}: current={current_balance}, required={required_amount}")
-            else:
-                # Check ERC-20 token balance
-                contract = w3.eth.contract(
-                    address=w3.to_checksum_address(token_address),
-                    abi=erc20_abi
-                )
-                current_balance = contract.functions.balanceOf(wallet_address).call()
-                self.logger().info(
-                    f"Token balance check for {token_symbol}: current={current_balance}, required={required_amount}")
+                # Get current balance from already-fetched data (avoids redundant Web3 call)
+                current_balance_decimal = self.get_balance(token_symbol)
 
-            if current_balance < required_amount:
-                readable_balance = current_balance / \
-                    (10 ** (utils.get_token_decimals(token_symbol) if token_symbol != "ETH" else 18))
-                readable_required = required_amount / \
-                    (10 ** (utils.get_token_decimals(token_symbol) if token_symbol != "ETH" else 18))
-                raise ValueError(
-                    f"Insufficient {token_symbol} balance. Have: {readable_balance:.6f}, Need: {readable_required:.6f}")
+                # 🚨 CRITICAL: Check if we're selling native token (SOMI) - need to reserve gas fees!
+                is_native_sell = token_symbol.upper() in CONSTANTS.NATIVE_TOKEN_LIST
+
+                if is_native_sell:
+                    # For native token sales, we need BOTH the sell amount AND gas for the transaction
+                    # Use cached gas price to avoid redundant Web3 calls
+                    gas_price = await self._get_cached_gas_price()
+
+                    # Estimate gas for limitSellETH transaction (conservative)
+                    estimated_gas = 250000  # Higher estimate for native token sales
+                    estimated_gas_cost_wei = gas_price * estimated_gas * self._gas_buffer_multiplier
+
+                    # Convert to Decimal using proper scaling
+                    estimated_gas_cost_decimal = Decimal(estimated_gas_cost_wei) / Decimal(10**18)
+
+                    # Total required = sell amount + gas fees
+                    required_amount_decimal = amount + estimated_gas_cost_decimal
+
+                    self.logger().warning(
+                        f"🔥 NATIVE TOKEN SALE: {token_symbol} | "
+                        f"Sell: {amount:.6f} + Gas: {estimated_gas_cost_decimal:.6f} = "
+                        f"Total needed: {required_amount_decimal:.6f} | "
+                        f"Available: {current_balance_decimal:.6f}"
+                    )
+
+            self.logger().info(
+                f"Balance check for {token_symbol}: current={current_balance_decimal:.6f}, required={required_amount_decimal:.6f}"
+            )
+
+            if current_balance_decimal < required_amount_decimal:
+                if not is_buy and token_symbol.upper() in CONSTANTS.NATIVE_TOKEN_LIST:
+                    # Special error message for native token sales
+                    gas_needed = required_amount_decimal - amount
+                    raise ValueError(
+                        f"Insufficient {token_symbol} balance for native token sale. "
+                        f"Have: {current_balance_decimal:.6f}, "
+                        f"Need: {amount:.6f} (sell) + {gas_needed:.6f} (gas) = {required_amount_decimal:.6f} total"
+                    )
+                else:
+                    raise ValueError(
+                        f"Insufficient {token_symbol} balance. Have: {current_balance_decimal:.6f}, Need: {required_amount_decimal:.6f}"
+                    )
             else:
-                readable_balance = current_balance / \
-                    (10 ** (utils.get_token_decimals(token_symbol) if token_symbol != "ETH" else 18))
-                readable_required = required_amount / \
-                    (10 ** (utils.get_token_decimals(token_symbol) if token_symbol != "ETH" else 18))
-                self.logger().info(
-                    f"Sufficient {token_symbol} balance: {readable_balance:.6f} >= {readable_required:.6f}")
+                if not is_buy and token_symbol.upper() in CONSTANTS.NATIVE_TOKEN_LIST:
+                    gas_reserved = required_amount_decimal - amount
+                    self.logger().info(
+                        f"✅ Sufficient {token_symbol} balance for native sale: {current_balance_decimal:.6f} "
+                        f"(sell: {amount:.6f} + gas reserve: {gas_reserved:.6f})"
+                    )
+                else:
+                    self.logger().info(
+                        f"✅ Sufficient {token_symbol} balance: {current_balance_decimal:.6f} >= {required_amount_decimal:.6f}"
+                    )
 
         except Exception as e:
             self.logger().error(f"Error checking token balance: {e}")
             raise
 
-    async def _place_order(self,
-                           order_id: str,
-                           trading_pair: str,
-                           amount: Decimal,
-                           trade_type: TradeType,
-                           order_type: OrderType,
-                           price: Decimal,
-                           **kwargs) -> Tuple[str, float]:
+    async def _place_order(
+        self,
+        order_id: str,
+        trading_pair: str,
+        amount: Decimal,
+        trade_type: TradeType,
+        order_type: OrderType,
+        price: Decimal,
+        **kwargs,
+    ) -> Tuple[str, float]:
         """
         Place an order on the exchange.
 
@@ -1362,12 +2229,17 @@ class StandardExchange(ExchangePyBase):
 
             if order_type == OrderType.MARKET:
                 # For market orders, we'll place a limit order at a price that should execute immediately
+                # Use configurable slippage - default 0.3% for arbitrage strategies
+                market_slippage = Decimal("0.003")  # 0.3% default - much better for arbitrage
+
                 if is_buy:
                     # Buy at a higher price to ensure execution
-                    execution_price = price * Decimal("1.01")  # 1% above current price
+                    execution_price = price * (Decimal("1") + market_slippage)
+                    self.logger().info(f"🔥 MARKET BUY: {amount} {base} at {execution_price} ({market_slippage * 100}% slippage)")
                 else:
                     # Sell at a lower price to ensure execution
-                    execution_price = price * Decimal("0.99")  # 1% below current price
+                    execution_price = price * (Decimal("1") - market_slippage)
+                    self.logger().info(f"🔥 MARKET SELL: {amount} {base} at {execution_price} ({market_slippage * 100}% slippage)")
             else:
                 execution_price = price
 
@@ -1413,7 +2285,7 @@ class StandardExchange(ExchangePyBase):
 
                 # APPROACH 2: DIRECT ON-CHAIN CONTRACT CALL (CURRENT IMPLEMENTATION)
                 # This is the working approach since StandardWeb3 limitSell/limitBuy functions are incomplete
-                tx_hash = await self._place_order_direct_contract(
+                result = await self._place_order_direct_contract(
                     base_address=base_address,
                     quote_address=quote_address,
                     amount=amount,
@@ -1421,27 +2293,34 @@ class StandardExchange(ExchangePyBase):
                     is_buy=is_buy,
                     base_decimals=base_decimals,
                     quote_decimals=quote_decimals,
-                    current_nonce=current_nonce
+                    current_nonce=current_nonce,
                 )
+
+                # Handle return value - could be tuple (tx_hash, timestamp) or just tx_hash
+                if isinstance(result, tuple) and len(result) == 2:
+                    tx_hash, _ = result  # Extract just the tx_hash
+                else:
+                    tx_hash = result  # Already just tx_hash
 
             # Store order ID mapping for cancellation
             # Handle both old format (just tx_hash string) and new format (dict with tx_hash and order_id)
             if isinstance(tx_hash, dict):
                 # New format: extract both transaction hash and order ID
-                transaction_hash = tx_hash.get('tx_hash')
-                actual_order_id = tx_hash.get('order_id')
+                transaction_hash = tx_hash.get("tx_hash")
+                actual_order_id = tx_hash.get("order_id")
 
                 self._order_id_map[order_id] = {
                     # Use order ID if available, fallback to tx hash
-                    'blockchain_order_id': actual_order_id if actual_order_id else transaction_hash,
-                    'transaction_hash': transaction_hash,  # Keep tx hash for reference
-                    'base_address': base_address,
-                    'quote_address': quote_address,
-                    'is_bid': is_buy
+                    "blockchain_order_id": actual_order_id if actual_order_id else transaction_hash,
+                    "transaction_hash": transaction_hash,  # Keep tx hash for reference
+                    "base_address": base_address,
+                    "quote_address": quote_address,
+                    "is_bid": is_buy,
                 }
 
                 self.logger().info(
-                    f"Order placed successfully: {order_id} -> {transaction_hash} (order_id: {actual_order_id}, max_matches: {MAX_ORDERS_TO_MATCH})")
+                    f"Order placed successfully: {order_id} -> {transaction_hash} (order_id: {actual_order_id}, max_matches: {MAX_ORDERS_TO_MATCH})"
+                )
                 tx_hash_for_return = transaction_hash
             else:
                 # Old format: just transaction hash (fallback)
@@ -1453,41 +2332,43 @@ class StandardExchange(ExchangePyBase):
                     self.logger().info(f"Order {order_id} was immediately filled - no order book entry created")
                     # For immediately filled orders, we don't store any blockchain order ID since there's nothing to cancel
                     self._order_id_map[order_id] = {
-                        'blockchain_order_id': None,  # No order ID since order was immediately filled
-                        'transaction_hash': tx_hash,
-                        'base_address': base_address,
-                        'quote_address': quote_address,
-                        'is_bid': is_buy,
-                        'immediately_filled': True  # Flag to indicate immediate fill
+                        "blockchain_order_id": None,  # No order ID since order was immediately filled
+                        "transaction_hash": tx_hash,
+                        "base_address": base_address,
+                        "quote_address": quote_address,
+                        "is_bid": is_buy,
+                        "immediately_filled": True,  # Flag to indicate immediate fill
                     }
                 elif actual_order_id is not None:
                     self.logger().info(f"Successfully extracted order ID: {actual_order_id} from tx: {tx_hash}")
                     self._order_id_map[order_id] = {
-                        'blockchain_order_id': actual_order_id,  # Use extracted integer order ID
-                        'transaction_hash': tx_hash,
-                        'base_address': base_address,
-                        'quote_address': quote_address,
-                        'is_bid': is_buy
+                        "blockchain_order_id": actual_order_id,  # Use extracted integer order ID
+                        "transaction_hash": tx_hash,
+                        "base_address": base_address,
+                        "quote_address": quote_address,
+                        "is_bid": is_buy,
                     }
                 else:
                     self.logger().warning(
-                        f"Could not extract order ID from tx receipt: {tx_hash}, using tx hash as fallback")
+                        f"Could not extract order ID from tx receipt: {tx_hash}, using tx hash as fallback"
+                    )
                     self._order_id_map[order_id] = {
-                        'blockchain_order_id': tx_hash,  # Fallback to transaction hash
-                        'transaction_hash': tx_hash,
-                        'base_address': base_address,
-                        'quote_address': quote_address,
-                        'is_bid': is_buy
+                        "blockchain_order_id": tx_hash,  # Fallback to transaction hash
+                        "transaction_hash": tx_hash,
+                        "base_address": base_address,
+                        "quote_address": quote_address,
+                        "is_bid": is_buy,
                     }
 
                 self.logger().info(
-                    f"Order placed successfully: {order_id} -> {tx_hash} (max_matches: {MAX_ORDERS_TO_MATCH})")
+                    f"Order placed successfully: {order_id} -> {tx_hash} (max_matches: {MAX_ORDERS_TO_MATCH})"
+                )
                 tx_hash_for_return = tx_hash
 
             # Check transaction status if tx_hash contains receipt information (legacy support)
-            if isinstance(tx_hash_for_return, dict) and 'status' in tx_hash_for_return:
-                tx_status = tx_hash_for_return.get('status', 0)
-                tx_hash_value = tx_hash_for_return.get('transactionHash', tx_hash_for_return)
+            if isinstance(tx_hash_for_return, dict) and "status" in tx_hash_for_return:
+                tx_status = tx_hash_for_return.get("status", 0)
+                tx_hash_value = tx_hash_for_return.get("transactionHash", tx_hash_for_return)
 
                 if tx_status == 0:
                     # Transaction failed on blockchain
@@ -1516,15 +2397,89 @@ class StandardExchange(ExchangePyBase):
             self.logger().error(f"Error placing order {order_id}: {e}")
             raise
 
-    async def _place_order_direct_contract(self,
-                                           base_address: str,
-                                           quote_address: str,
-                                           amount: Decimal,
-                                           execution_price: Decimal,
-                                           is_buy: bool,
-                                           base_decimals: int,
-                                           quote_decimals: int,
-                                           current_nonce: int) -> str:
+    # 🚀 PHASE 2: Override _place_order_and_process_update for blockchain transaction tracking
+    async def _place_order_and_process_update(self, order: InFlightOrder, **kwargs) -> str:
+        """
+        Override parent method to handle blockchain transaction tracking.
+        This ensures proper order status management with async transaction confirmation.
+        """
+        try:
+            # 💰 CRITICAL: Check gas balance before attempting order placement
+            if not await self._ensure_sufficient_gas_before_transaction("place_order"):
+                # Mark order as failed due to insufficient gas
+                order_update = OrderUpdate(
+                    client_order_id=order.client_order_id,
+                    trading_pair=order.trading_pair,
+                    update_timestamp=self.current_timestamp,
+                    new_state=OrderState.FAILED,
+                    misc_updates={
+                        "error_message": "Insufficient gas balance for transaction",
+                        "error_type": "INSUFFICIENT_GAS",
+                        "gas_check_timestamp": time.time(),
+                    },
+                )
+                self._order_tracker.process_order_update(order_update)
+
+                # Also emit error event
+                self.trigger_event(
+                    MarketEvent.OrderFailure,
+                    {
+                        "order_id": order.client_order_id,
+                        "error": "Insufficient gas balance - please deposit SOMI for gas fees",
+                    },
+                )
+
+                raise Exception("Insufficient gas balance for order placement")
+
+            # Call the standard _place_order method
+            exchange_order_id, update_timestamp = await self._place_order(
+                order_id=order.client_order_id,
+                trading_pair=order.trading_pair,
+                amount=order.amount,
+                trade_type=order.trade_type,
+                order_type=order.order_type,
+                price=order.price,
+                **kwargs,
+            )
+
+            # Map transaction hash to order
+            if exchange_order_id:  # This is actually tx_hash
+                self._tx_order_mapping[exchange_order_id] = order.client_order_id
+                self._order_tx_mapping[order.client_order_id] = exchange_order_id
+
+                # Update pending tx info with client_order_id
+                if exchange_order_id in self._pending_tx_hashes:
+                    self._pending_tx_hashes[exchange_order_id]["client_order_id"] = order.client_order_id
+
+            # Create order update with OPEN state (transaction submitted)
+            order_update: OrderUpdate = OrderUpdate(
+                client_order_id=order.client_order_id,
+                exchange_order_id=exchange_order_id,  # tx_hash
+                trading_pair=order.trading_pair,
+                update_timestamp=update_timestamp,
+                new_state=OrderState.OPEN,  # Transaction submitted to mempool
+            )
+            self._order_tracker.process_order_update(order_update)
+
+            self.logger().info(f"🚀 PHASE 2: Order {order.client_order_id} submitted as tx {exchange_order_id}")
+            return exchange_order_id
+
+        except Exception as e:
+            # Let parent class handle the error properly
+            self.logger().error(f"Failed to submit order {order.client_order_id}: {e}")
+            raise
+
+    async def _place_order_direct_contract(
+        self,
+        base_address: str,
+        quote_address: str,
+        amount: Decimal,
+        execution_price: Decimal,
+        is_buy: bool,
+        base_decimals: int,
+        quote_decimals: int,
+        current_nonce: int,
+    ) -> str:
         """
         Place order directly on the smart contract without using StandardWeb3.
 
@@ -1572,7 +2527,7 @@ class StandardExchange(ExchangePyBase):
             if is_buy:
                 # For buy orders: quote_amount = amount * price
                 quote_amount = amount * execution_price
-                quote_amount_wei = int(quote_amount * (10 ** quote_decimals))
+                quote_amount_wei = int(quote_amount * (10**quote_decimals))
                 price_wei = int(execution_price * CONSTANTS.DENOM)  # Use contract's price precision
 
                 # Check if we're buying with the native token (SOMI)
@@ -1589,7 +2544,8 @@ class StandardExchange(ExchangePyBase):
                     # Calculate price_wei with correct contract precision
                     price_wei = int(execution_price * CONSTANTS.DENOM)
                     self.logger().info(
-                        f"  - price_wei calculation: {execution_price} * {CONSTANTS.DENOM} = {price_wei}")
+                        f"  - price_wei calculation: {execution_price} * {CONSTANTS.DENOM} = {price_wei}"
+                    )
                     self.logger().info(f"  - quote_amount_wei: {quote_amount_wei}")
                     self.logger().info(f"  - nonce: {current_nonce}")
 
@@ -1599,38 +2555,39 @@ class StandardExchange(ExchangePyBase):
                         import os
 
                         # Load local ABI file (more up-to-date than standardweb3 package)
-                        abi_path = os.path.join(os.path.dirname(__file__), 'lib', 'matching_engine_abi.json')
-                        with open(abi_path, 'r') as f:
+                        abi_path = os.path.join(os.path.dirname(__file__), "lib", "matching_engine_abi.json")
+                        with open(abi_path, "r") as f:
                             matching_engine_abi = json.load(f)
 
                         # Create contract instance
-                        contract = w3.eth.contract(
-                            address=exchange_checksum,
-                            abi=matching_engine_abi
-                        )
+                        contract = w3.eth.contract(address=exchange_checksum, abi=matching_engine_abi)
 
                         # Build the limitBuyETH function call using the ABI
                         # limitBuyETH(address base, uint256 price, bool isMaker, uint32 n, address recipient)
                         # CRITICAL: n parameter is MAX ORDERS TO MATCH, not nonce!
                         transaction_data = contract.functions.limitBuyETH(
-                            w3.to_checksum_address(base_address),    # base token (what we're buying)
-                            price_wei,                               # price
-                            True,                                    # isMaker
-                            MAX_ORDERS_TO_MATCH,                     # n (max orders to match, not nonce!)
-                            wallet_address                           # recipient
-                        ).build_transaction({
-                            'from': wallet_address,
-                            'gas': 1,  # Will be estimated later
-                            'gasPrice': 1,  # Will be set later
-                            'nonce': current_nonce,
-                            'value': quote_amount_wei  # Send SOMI amount as transaction value
-                        })
+                            w3.to_checksum_address(base_address),  # base token (what we're buying)
+                            price_wei,  # price
+                            True,  # isMaker
+                            MAX_ORDERS_TO_MATCH,  # n (max orders to match, not nonce!)
+                            wallet_address,  # recipient
+                        ).build_transaction(
+                            {
+                                "from": wallet_address,
+                                "gas": 1,  # Will be estimated later
+                                "gasPrice": 1,  # Will be set later
+                                "nonce": current_nonce,
+                                "value": quote_amount_wei,  # Send SOMI amount as transaction value
+                            }
+                        )
 
                         # Extract the data field
-                        transaction_data = transaction_data['data']
+                        transaction_data = transaction_data["data"]
 
                     except ImportError:
-                        self.logger().warning("standardweb3 matching_engine_abi not available, falling back to manual encoding for limitBuyETH")
+                        self.logger().warning(
+                            "standardweb3 matching_engine_abi not available, falling back to manual encoding for limitBuyETH"
+                        )
 
                         # Fallback to manual encoding for limitBuyETH
                         # Function signature: limitBuyETH(address,uint256,bool,uint32,address)
@@ -1638,14 +2595,14 @@ class StandardExchange(ExchangePyBase):
 
                         # Encode parameters according to ABI
                         encoded_params = w3.codec.encode(
-                            ['address', 'uint256', 'bool', 'uint32', 'address'],
+                            ["address", "uint256", "bool", "uint32", "address"],
                             [
-                                w3.to_checksum_address(base_address),    # base token
-                                price_wei,                               # price
-                                True,                                    # isMaker
-                                MAX_ORDERS_TO_MATCH,                     # n (max orders to match, not nonce!)
-                                wallet_address                           # recipient
-                            ]
+                                w3.to_checksum_address(base_address),  # base token
+                                price_wei,  # price
+                                True,  # isMaker
+                                MAX_ORDERS_TO_MATCH,  # n (max orders to match, not nonce!)
+                                wallet_address,  # recipient
+                            ],
                         )
 
                         # Build transaction data
@@ -1665,56 +2622,57 @@ class StandardExchange(ExchangePyBase):
                         import os
 
                         # Load local ABI file (more up-to-date than standardweb3 package)
-                        abi_path = os.path.join(os.path.dirname(__file__), 'lib', 'matching_engine_abi.json')
-                        with open(abi_path, 'r') as f:
+                        abi_path = os.path.join(os.path.dirname(__file__), "lib", "matching_engine_abi.json")
+                        with open(abi_path, "r") as f:
                             matching_engine_abi = json.load(f)
 
                         # Create contract instance
-                        contract = w3.eth.contract(
-                            address=exchange_checksum,
-                            abi=matching_engine_abi
-                        )
+                        contract = w3.eth.contract(address=exchange_checksum, abi=matching_engine_abi)
 
                         # Build the limitBuy function call using the ABI
                         # limitBuy(address base, address quote, uint256 price, uint256 quoteAmount, bool isMaker, uint32 n, address recipient)
                         # CRITICAL: n parameter is MAX ORDERS TO MATCH, not nonce!
                         transaction_data = contract.functions.limitBuy(
-                            w3.to_checksum_address(base_address),     # base token
-                            w3.to_checksum_address(quote_address),   # quote token
-                            price_wei,                               # price
-                            quote_amount_wei,                        # quoteAmount
-                            True,                                    # isMaker
-                            MAX_ORDERS_TO_MATCH,                     # n (max orders to match, not nonce!)
-                            wallet_address                           # recipient
-                        ).build_transaction({
-                            'from': wallet_address,
-                            'gas': 1,  # Will be estimated later
-                            'gasPrice': 1,  # Will be set later
-                            'nonce': current_nonce,
-                            'value': 0  # No value for ERC20 purchases
-                        })
+                            w3.to_checksum_address(base_address),  # base token
+                            w3.to_checksum_address(quote_address),  # quote token
+                            price_wei,  # price
+                            quote_amount_wei,  # quoteAmount
+                            True,  # isMaker
+                            MAX_ORDERS_TO_MATCH,  # n (max orders to match, not nonce!)
+                            wallet_address,  # recipient
+                        ).build_transaction(
+                            {
+                                "from": wallet_address,
+                                "gas": 1,  # Will be estimated later
+                                "gasPrice": 1,  # Will be set later
+                                "nonce": current_nonce,
+                                "value": 0,  # No value for ERC20 purchases
+                            }
+                        )
 
                         # Extract the data field
-                        transaction_data = transaction_data['data']
+                        transaction_data = transaction_data["data"]
 
                     except ImportError:
-                        self.logger().warning("standardweb3 matching_engine_abi not available, falling back to manual encoding")
+                        self.logger().warning(
+                            "standardweb3 matching_engine_abi not available, falling back to manual encoding"
+                        )
 
                         # Fallback to manual encoding
                         function_selector = "0x89556190"
 
                         # Encode parameters according to ABI (note uint32 for n parameter)
                         encoded_params = w3.codec.encode(
-                            ['address', 'address', 'uint256', 'uint256', 'bool', 'uint32', 'address'],
+                            ["address", "address", "uint256", "uint256", "bool", "uint32", "address"],
                             [
-                                w3.to_checksum_address(base_address),     # base token
-                                w3.to_checksum_address(quote_address),   # quote token
-                                price_wei,                               # price
-                                quote_amount_wei,                        # quoteAmount
-                                True,                                    # isMaker
-                                MAX_ORDERS_TO_MATCH,                     # n (max orders to match, not nonce!)
-                                wallet_address                           # recipient
-                            ]
+                                w3.to_checksum_address(base_address),  # base token
+                                w3.to_checksum_address(quote_address),  # quote token
+                                price_wei,  # price
+                                quote_amount_wei,  # quoteAmount
+                                True,  # isMaker
+                                MAX_ORDERS_TO_MATCH,  # n (max orders to match, not nonce!)
+                                wallet_address,  # recipient
+                            ],
                         )
 
                         # Build transaction data
@@ -1722,7 +2680,7 @@ class StandardExchange(ExchangePyBase):
 
             else:
                 # For sell orders: base_amount = amount
-                base_amount_wei = int(amount * (10 ** base_decimals))
+                base_amount_wei = int(amount * (10**base_decimals))
                 price_wei = int(execution_price * CONSTANTS.DENOM)  # Use contract's price precision
 
                 # Check if we're selling the native token (SOMI)
@@ -1745,7 +2703,8 @@ class StandardExchange(ExchangePyBase):
                     # Calculate price_wei with correct contract precision
                     price_wei = int(execution_price * CONSTANTS.DENOM)
                     self.logger().info(
-                        f"  - price_wei calculation: {execution_price} * {CONSTANTS.DENOM} = {price_wei}")
+                        f"  - price_wei calculation: {execution_price} * {CONSTANTS.DENOM} = {price_wei}"
+                    )
                     self.logger().info(f"  - base_amount_wei: {base_amount_wei}")
                     self.logger().info(f"  - nonce: {current_nonce}")
 
@@ -1755,38 +2714,39 @@ class StandardExchange(ExchangePyBase):
                         import os
 
                         # Load local ABI file (more up-to-date than standardweb3 package)
-                        abi_path = os.path.join(os.path.dirname(__file__), 'lib', 'matching_engine_abi.json')
-                        with open(abi_path, 'r') as f:
+                        abi_path = os.path.join(os.path.dirname(__file__), "lib", "matching_engine_abi.json")
+                        with open(abi_path, "r") as f:
                             matching_engine_abi = json.load(f)
 
                         # Create contract instance
-                        contract = w3.eth.contract(
-                            address=exchange_checksum,
-                            abi=matching_engine_abi
-                        )
+                        contract = w3.eth.contract(address=exchange_checksum, abi=matching_engine_abi)
 
                         # Build the limitSellETH function call using the ABI
                         # limitSellETH(address quote, uint256 price, bool isMaker, uint32 n, address recipient)
                         # CRITICAL: n parameter is MAX ORDERS TO MATCH, not nonce!
                         transaction_data = contract.functions.limitSellETH(
-                            w3.to_checksum_address(quote_address),   # quote token
-                            price_wei,                               # price
-                            True,                                    # isMaker
-                            MAX_ORDERS_TO_MATCH,                     # n (max orders to match, not nonce!)
-                            wallet_address                           # recipient
-                        ).build_transaction({
-                            'from': wallet_address,
-                            'gas': 1,  # Will be estimated later
-                            'gasPrice': 1,  # Will be set later
-                            'nonce': current_nonce,
-                            'value': base_amount_wei  # Send SOMI amount as transaction value
-                        })
+                            w3.to_checksum_address(quote_address),  # quote token
+                            price_wei,  # price
+                            True,  # isMaker
+                            MAX_ORDERS_TO_MATCH,  # n (max orders to match, not nonce!)
+                            wallet_address,  # recipient
+                        ).build_transaction(
+                            {
+                                "from": wallet_address,
+                                "gas": 1,  # Will be estimated later
+                                "gasPrice": 1,  # Will be set later
+                                "nonce": current_nonce,
+                                "value": base_amount_wei,  # Send SOMI amount as transaction value
+                            }
+                        )
 
                         # Extract the data field
-                        transaction_data = transaction_data['data']
+                        transaction_data = transaction_data["data"]
 
                     except ImportError:
-                        self.logger().warning("standardweb3 matching_engine_abi not available, falling back to manual encoding for limitSellETH")
+                        self.logger().warning(
+                            "standardweb3 matching_engine_abi not available, falling back to manual encoding for limitSellETH"
+                        )
 
                         # Fallback to manual encoding for limitSellETH
                         # Function signature: limitSellETH(address,uint256,bool,uint32,address)
@@ -1794,14 +2754,14 @@ class StandardExchange(ExchangePyBase):
 
                         # Encode parameters according to ABI
                         encoded_params = w3.codec.encode(
-                            ['address', 'uint256', 'bool', 'uint32', 'address'],
+                            ["address", "uint256", "bool", "uint32", "address"],
                             [
-                                w3.to_checksum_address(quote_address),   # quote token
-                                price_wei,                               # price
-                                True,                                    # isMaker
-                                MAX_ORDERS_TO_MATCH,                     # n (max orders to match, not nonce!)
-                                wallet_address                           # recipient
-                            ]
+                                w3.to_checksum_address(quote_address),  # quote token
+                                price_wei,  # price
+                                True,  # isMaker
+                                MAX_ORDERS_TO_MATCH,  # n (max orders to match, not nonce!)
+                                wallet_address,  # recipient
+                            ],
                         )
 
                         # Build transaction data
@@ -1821,57 +2781,59 @@ class StandardExchange(ExchangePyBase):
                         import os
 
                         # Load local ABI file (more up-to-date than standardweb3 package)
-                        abi_path = os.path.join(os.path.dirname(__file__), 'lib', 'matching_engine_abi.json')
-                        with open(abi_path, 'r') as f:
+                        abi_path = os.path.join(os.path.dirname(__file__), "lib", "matching_engine_abi.json")
+                        with open(abi_path, "r") as f:
                             matching_engine_abi = json.load(f)
 
                         # Create contract instance
-                        contract = w3.eth.contract(
-                            address=exchange_checksum,
-                            abi=matching_engine_abi
-                        )
+                        contract = w3.eth.contract(address=exchange_checksum, abi=matching_engine_abi)
 
                         # Build the limitSell function call using the ABI
                         # limitSell(address base, address quote, uint256 price, uint256 baseAmount, bool isMaker, uint32 n, address recipient)
                         # CRITICAL: n parameter is MAX ORDERS TO MATCH, not nonce!
                         transaction_data = contract.functions.limitSell(
-                            w3.to_checksum_address(base_address),     # base token
-                            w3.to_checksum_address(quote_address),   # quote token
-                            price_wei,                               # price
-                            base_amount_wei,                         # baseAmount
-                            True,                                    # isMaker
-                            MAX_ORDERS_TO_MATCH,                     # n (max orders to match, not nonce!)
-                            wallet_address                           # recipient
-                        ).build_transaction({
-                            'from': wallet_address,
-                            'gas': 1,  # Will be estimated later
-                            'gasPrice': 1,  # Will be set later
-                            'nonce': current_nonce,
-                            'value': 0  # No value for ERC20 sales
-                        })
+                            w3.to_checksum_address(base_address),  # base token
+                            w3.to_checksum_address(quote_address),  # quote token
+                            price_wei,  # price
+                            base_amount_wei,  # baseAmount
+                            True,  # isMaker
+                            MAX_ORDERS_TO_MATCH,  # n (max orders to match, not nonce!)
+                            wallet_address,  # recipient
+                        ).build_transaction(
+                            {
+                                "from": wallet_address,
+                                "gas": 1,  # Will be estimated later
+                                "gasPrice": 1,  # Will be set later
+                                "nonce": current_nonce,
+                                "value": 0,  # No value for ERC20 sales
+                            }
+                        )
 
                         # Extract the data field
-                        transaction_data = transaction_data['data']
+                        transaction_data = transaction_data["data"]
 
                     except ImportError:
-                        self.logger().warning("standardweb3 matching_engine_abi not available, falling back to manual encoding")
+                        self.logger().warning(
+                            "standardweb3 matching_engine_abi not available, falling back to manual encoding"
+                        )
 
                         # Fallback to manual encoding
                         function_selector = w3.keccak(
-                            text="limitSell(address,address,uint256,uint256,bool,uint32,address)")[:4].hex()
+                            text="limitSell(address,address,uint256,uint256,bool,uint32,address)"
+                        )[:4].hex()
 
                         # Encode parameters according to ABI (note uint32 for n parameter)
                         encoded_params = w3.codec.encode(
-                            ['address', 'address', 'uint256', 'uint256', 'bool', 'uint32', 'address'],
+                            ["address", "address", "uint256", "uint256", "bool", "uint32", "address"],
                             [
-                                w3.to_checksum_address(base_address),     # base token
-                                w3.to_checksum_address(quote_address),   # quote token
-                                price_wei,                               # price
-                                base_amount_wei,                         # baseAmount
-                                True,                                    # isMaker
-                                MAX_ORDERS_TO_MATCH,                     # n (max orders to match, not nonce!)
-                                wallet_address                           # recipient
-                            ]
+                                w3.to_checksum_address(base_address),  # base token
+                                w3.to_checksum_address(quote_address),  # quote token
+                                price_wei,  # price
+                                base_amount_wei,  # baseAmount
+                                True,  # isMaker
+                                MAX_ORDERS_TO_MATCH,  # n (max orders to match, not nonce!)
+                                wallet_address,  # recipient
+                            ],
                         )
 
                         # Build transaction data
@@ -1886,19 +2848,22 @@ class StandardExchange(ExchangePyBase):
                 # For limitSellETH, transaction value is the base amount being sold
                 transaction_value = base_amount_wei
                 self.logger().info(
-                    f"Selling native token {base_symbol}: sending {transaction_value} wei ({amount} {base_symbol}) as transaction value")
+                    f"Selling native token {base_symbol}: sending {transaction_value} wei ({amount} {base_symbol}) as transaction value"
+                )
             else:
                 # For limitBuy or limitSell (ERC20), no value needed
                 transaction_value = 0
 
             # Estimate gas for the transaction
             try:
-                gas_estimate = w3.eth.estimate_gas({
-                    'from': wallet_address,
-                    'to': exchange_checksum,
-                    'data': transaction_data,
-                    'value': transaction_value
-                })
+                gas_estimate = w3.eth.estimate_gas(
+                    {
+                        "from": wallet_address,
+                        "to": exchange_checksum,
+                        "data": transaction_data,
+                        "value": transaction_value,
+                    }
+                )
 
                 # Add 20% buffer to gas estimate, but ensure it's at least 3M
                 gas_limit = max(int(gas_estimate * 1.2), 3000000)
@@ -1908,19 +2873,19 @@ class StandardExchange(ExchangePyBase):
                 self.logger().warning(f"Could not estimate gas: {e}, using default 3M")
                 gas_limit = 3000000
 
-            # Get current gas price
-            gas_price = w3.eth.gas_price
+            # Get current gas price using cache to avoid redundant Web3 calls
+            gas_price = await self._get_cached_gas_price()
 
             # Build transaction
             transaction = {
-                'from': wallet_address,
-                'to': exchange_checksum,
-                'data': transaction_data,
-                'gas': gas_limit,
-                'gasPrice': gas_price,
-                'nonce': current_nonce,
-                'value': transaction_value,
-                'chainId': CONSTANTS.DOMAIN_CONFIG[self._domain]["chain_id"]
+                "from": wallet_address,
+                "to": exchange_checksum,
+                "data": transaction_data,
+                "gas": gas_limit,
+                "gasPrice": gas_price,
+                "nonce": current_nonce,
+                "value": transaction_value,
+                "chainId": CONSTANTS.DOMAIN_CONFIG[self._domain]["chain_id"],
             }
 
             # Sign transaction
@@ -1928,7 +2893,7 @@ class StandardExchange(ExchangePyBase):
             private_key_for_signing = self._private_key
             if isinstance(private_key_for_signing, str):
                 # Remove '0x' prefix if present
-                if private_key_for_signing.startswith('0x'):
+                if private_key_for_signing.startswith("0x"):
                     private_key_for_signing = private_key_for_signing[2:]
                 # Convert hex string to bytes
                 private_key_for_signing = bytes.fromhex(private_key_for_signing)
@@ -1948,83 +2913,32 @@ class StandardExchange(ExchangePyBase):
                 self.logger().error(f"Failed to submit transaction: {e}")
                 raise
 
-            # Wait for transaction confirmation
-            receipt = None
+            # 🚀 PHASE 2: RETURN IMMEDIATELY - No confirmation wait!
+            self.logger().info(f"Transaction submitted successfully: {tx_hash_hex}")
+            self.logger().info(f"Order will be tracked async - check status via get_open_orders()")
 
-            for i in range(30):  # Wait up to 30 seconds
-                try:
-                    receipt = w3.eth.get_transaction_receipt(tx_hash)
-                    if receipt:
-                        break
-                except Exception as e:
-                    # Continue trying unless it's a definitive error
-                    if "transaction not found" not in str(e).lower():
-                        self.logger().warning(f"Error getting transaction receipt (attempt {i + 1}/30): {e}")
-                await asyncio.sleep(1)
+            # Store transaction hash for later confirmation tracking
+            # Determine order type based on trade direction and token type
+            quote_symbol = utils.convert_address_to_symbol(quote_address, self._domain)
+            is_native_buy = is_buy and quote_symbol.upper() in CONSTANTS.NATIVE_TOKEN_LIST
+            is_native_sell = not is_buy and base_symbol.upper() in CONSTANTS.NATIVE_TOKEN_LIST
 
-            # Process transaction confirmation results
-            if receipt:
-                if receipt.status == 1:
-                    self.logger().info(f"Direct contract order confirmed: {tx_hash_hex}")
-
-                    # Extract order ID from transaction logs for cancellation
-                    order_id = await self._extract_order_id_from_transaction_receipt(tx_hash_hex)
-                    if order_id == "IMMEDIATELY_FILLED":
-                        # Order was immediately filled - return special indicator
-                        return {"tx_hash": tx_hash_hex, "order_id": None, "immediately_filled": True}
-                    elif order_id:
-                        # Return both transaction hash and order ID
-                        return {"tx_hash": tx_hash_hex, "order_id": order_id}
-                    else:
-                        # Fallback to just transaction hash if order ID extraction fails
-                        self.logger().warning(f"Could not extract order ID from transaction {tx_hash_hex}")
-                        return tx_hash_hex
-                else:
-                    # Transaction was mined but failed
-                    self.logger().error(f"Direct contract order failed on blockchain: {tx_hash_hex}")
-                    self.logger().error(f"Transaction receipt: {receipt}")
-
-                    # Try to get more detailed error information
-                    error_details = f"Transaction failed with status {receipt.status}"
-
-                    # Get gas usage information to detect out of gas errors
-                    if hasattr(receipt, 'gasUsed') and hasattr(receipt, 'gasLimit'):
-                        gas_used = receipt.gasUsed
-                        # Try to get the original transaction to see gas limit
-                        try:
-                            tx = w3.eth.get_transaction(tx_hash)
-                            gas_limit = tx.gas
-                            if gas_used >= gas_limit * 0.95:  # Used more than 95% of gas limit
-                                error_details += " (likely OUT_OF_GAS)"
-                        except Exception as e:
-                            self.logger().warning(f"Could not get transaction details for gas analysis: {e}")
-
-                    # Try to get revert reason if available
-                    try:
-                        # Attempt to replay the transaction to get revert reason
-                        tx = w3.eth.get_transaction(tx_hash)
-                        w3.eth.call({
-                            'to': tx.to,
-                            'from': tx['from'],
-                            'data': tx.input,
-                            'value': tx.value,
-                            'gas': tx.gas,
-                            'gasPrice': tx.gasPrice
-                        }, block_identifier=receipt.blockNumber - 1)
-                    except Exception as revert_error:
-                        # The call failed, which gives us the revert reason
-                        revert_reason = str(revert_error)
-                        if "execution reverted" in revert_reason.lower():
-                            error_details += f" - Revert reason: {revert_reason}"
-
-                    raise Exception(error_details)
+            if is_native_buy:
+                order_type = "limitBuyETH"
+            elif is_native_sell:
+                order_type = "limitSellETH"
+            elif is_buy:
+                order_type = "limitBuy"
             else:
-                # Could not get receipt - transaction may be pending or dropped
-                self.logger().warning(f"Could not get receipt for transaction: {tx_hash_hex}")
+                order_type = "limitSell"
 
-                # For now, return the transaction hash but this might need more sophisticated handling
-                # in production to check if transaction was actually dropped
-                return tx_hash_hex
+            self._pending_tx_hashes[tx_hash_hex] = {
+                "timestamp": self.current_timestamp,
+                "order_type": order_type,
+                "client_order_id": None,  # Will be set by caller
+            }
+
+            return tx_hash_hex, self.current_timestamp
 
         except Exception as e:
             self.logger().error(f"Error in direct contract order placement: {e}")
@@ -2074,7 +2988,7 @@ class StandardExchange(ExchangePyBase):
                 error_details = f"Transaction failed with status {receipt.status}"
 
                 # Get gas usage information to detect out of gas errors
-                if hasattr(receipt, 'gasUsed'):
+                if hasattr(receipt, "gasUsed"):
                     gas_used = receipt.gasUsed
                     # Try to get the original transaction to see gas limit
                     try:
@@ -2089,14 +3003,17 @@ class StandardExchange(ExchangePyBase):
                 try:
                     # Attempt to replay the transaction to get revert reason
                     tx = w3.eth.get_transaction(tx_hash)
-                    w3.eth.call({
-                        'to': tx.to,
-                        'from': tx['from'],
-                        'data': tx.input,
-                        'value': tx.value,
-                        'gas': tx.gas,
-                        'gasPrice': tx.gasPrice
-                    }, block_identifier=receipt.blockNumber - 1)
+                    w3.eth.call(
+                        {
+                            "to": tx.to,
+                            "from": tx["from"],
+                            "data": tx.input,
+                            "value": tx.value,
+                            "gas": tx.gas,
+                            "gasPrice": tx.gasPrice,
+                        },
+                        block_identifier=receipt.blockNumber - 1,
+                    )
                 except Exception as revert_error:
                     # The call failed, which gives us the revert reason
                     revert_reason = str(revert_error)
@@ -2112,6 +3029,7 @@ class StandardExchange(ExchangePyBase):
     async def _place_cancel(self, order_id: str, tracked_order: InFlightOrder) -> str:
         """
         Cancel an order on the exchange using StandardWeb3 cancel_orders method with on-chain fallback.
+        Enhanced with Phase 4 error handling and timeout management.
 
         Args:
             order_id: Client order ID
@@ -2120,26 +3038,100 @@ class StandardExchange(ExchangePyBase):
         Returns:
             Exchange cancellation ID (transaction hash)
         """
+        cancellation_start_time = time.time()
+
         try:
+            # � Update balances to ensure we have fresh data before gas check
+            await self._update_balances()
+
+            # �💰 CRITICAL: Check gas balance before attempting cancellation
+            if not await self._ensure_sufficient_gas_before_transaction("cancel_order"):
+                self.logger().error(
+                    f"❌ Cannot cancel order {order_id} - insufficient gas balance. "
+                    f"Order may remain active on blockchain until gas is available."
+                )
+
+                # Record failed cancellation attempt
+                self._record_cancellation_attempt(order_id, "failed_insufficient_gas")
+
+                # Still update order to failed state so it's removed from active orders
+                # but with a clear message about what happened
+                order_update = OrderUpdate(
+                    client_order_id=order_id,
+                    trading_pair=tracked_order.trading_pair,
+                    update_timestamp=self.current_timestamp,
+                    new_state=OrderState.FAILED,
+                    misc_updates={
+                        "error_message": "Cannot cancel - insufficient gas balance. Order may still be active on blockchain.",
+                        "error_type": "INSUFFICIENT_GAS_FOR_CANCEL",
+                        "cancellation_blocked": True,
+                        "gas_check_timestamp": time.time(),
+                    },
+                )
+                self._order_tracker.process_order_update(order_update)
+
+                # Return a special ID to indicate gas issue
+                return f"GAS_INSUFFICIENT_{order_id}"
+
+            # Phase 4 Enhancement: Record cancellation attempt
+            self._record_cancellation_attempt(order_id, "started")
+
             # Method 1: Use StandardWeb3 cancel_orders (preferred method)
             if self._standard_client and order_id in self._order_id_map:
                 order_info = self._order_id_map[order_id]
 
                 # Check if this order was immediately filled
-                if order_info.get('immediately_filled', False) or order_info.get('blockchain_order_id') is None:
+                if order_info.get("immediately_filled", False) or order_info.get("blockchain_order_id") is None:
                     self.logger().info(f"Order {order_id} was immediately filled - no order to cancel on blockchain")
                     # Mark as cancelled locally since there's no blockchain order to cancel
                     cancellation_id = f"immediately_filled_{order_id}"
                     self.logger().info(f"Order marked as locally cancelled (was immediately filled): {order_id}")
+
+                    # Phase 4: Record successful local cancellation
+                    cancellation_time = (time.time() - cancellation_start_time) * 1000
+                    self._record_cancellation_attempt(order_id, "success_local", cancellation_time)
+
                     return cancellation_id
 
-                base_address = order_info['base_address']
-                quote_address = order_info['quote_address']
-                is_bid = order_info['is_bid']
-                blockchain_order_id = order_info['blockchain_order_id']
+                base_address = order_info["base_address"]
+                quote_address = order_info["quote_address"]
+                is_bid = order_info["is_bid"]
+                blockchain_order_id = order_info["blockchain_order_id"]
 
                 self.logger().info(
-                    "Using StandardWeb3 cancel_orders for: {order_id} -> blockchain_order_id: {blockchain_order_id}")
+                    f"🔄 PHASE 4: Starting cancellation for {order_id} -> blockchain_order_id: {blockchain_order_id}"
+                )
+
+                # Phase 4 Enhancement: Add timeout wrapper for cancellation
+                try:
+                    # Use asyncio.wait_for with shorter timeout for better UX
+                    cancellation_result = await asyncio.wait_for(
+                        self._execute_cancellation_with_retry(order_id, order_info),
+                        timeout=30.0,  # 30 second timeout for cancellation
+                    )
+
+                    cancellation_time = (time.time() - cancellation_start_time) * 1000
+                    self.logger().info(f"✅ Order cancellation completed in {cancellation_time:.2f}ms")
+
+                    # Phase 4: Record successful cancellation
+                    self._record_cancellation_attempt(order_id, "success", cancellation_time)
+
+                    return cancellation_result
+
+                except asyncio.TimeoutError:
+                    # Phase 4 Enhancement: Handle cancellation timeout gracefully
+                    cancellation_time = (time.time() - cancellation_start_time) * 1000
+                    self.logger().warning(
+                        f"⏰ Cancellation timeout for {order_id} after {cancellation_time:.0f}ms. "
+                        f"Transaction may still be processing on blockchain."
+                    )
+
+                    # Record timeout and suggest action
+                    self._record_cancellation_attempt(order_id, "timeout", cancellation_time)
+                    self._handle_cancellation_timeout(order_id, cancellation_time)
+
+                    # Return a timeout ID so the system can track this
+                    return f"timeout_{order_id}_{int(time.time())}"
 
                 # If blockchain_order_id is a transaction hash (string), we need to extract the real order ID
                 if isinstance(blockchain_order_id, str):
@@ -2148,12 +3140,14 @@ class StandardExchange(ExchangePyBase):
 
                     if extracted_order_id == "IMMEDIATELY_FILLED":
                         self.logger().info(
-                            f"Order {order_id} was immediately filled - no order to cancel on blockchain")
+                            f"Order {order_id} was immediately filled - no order to cancel on blockchain"
+                        )
                         cancellation_id = f"immediately_filled_{order_id}"
                         return cancellation_id
                     elif extracted_order_id is None:
                         self.logger().warning(
-                            f"Could not extract order ID from transaction {blockchain_order_id}, falling back to direct contract")
+                            f"Could not extract order ID from transaction {blockchain_order_id}, falling back to direct contract"
+                        )
                         # Continue to fallback method below
                     else:
                         blockchain_order_id = extracted_order_id
@@ -2167,12 +3161,14 @@ class StandardExchange(ExchangePyBase):
                         current_nonce = await self._get_current_nonce()
 
                         # Prepare cancel_order_data structure for StandardWeb3
-                        cancel_order_data = [{
-                            "base": base_address,
-                            "quote": quote_address,
-                            "isBid": is_bid,  # Use camelCase as expected by StandardWeb3 API
-                            "orderId": blockchain_order_id,  # Use 'orderId' (camelCase) as expected by StandardWeb3
-                        }]
+                        cancel_order_data = [
+                            {
+                                "base": base_address,
+                                "quote": quote_address,
+                                "isBid": is_bid,  # Use camelCase as expected by StandardWeb3 API
+                                "orderId": blockchain_order_id,  # Use 'orderId' (camelCase) as expected by StandardWeb3
+                            }
+                        ]
 
                         try:
                             # Use StandardWeb3 cancel_orders method (without nonce parameter - it manages its own nonce)
@@ -2195,15 +3191,15 @@ class StandardExchange(ExchangePyBase):
                 order_info = self._order_id_map[order_id]
 
                 # Check if this order was immediately filled
-                if order_info.get('immediately_filled', False) or order_info.get('blockchain_order_id') is None:
+                if order_info.get("immediately_filled", False) or order_info.get("blockchain_order_id") is None:
                     self.logger().info(f"Order {order_id} was immediately filled - no order to cancel on blockchain")
                     cancellation_id = f"immediately_filled_{order_id}"
                     return cancellation_id
 
-                base_address = order_info['base_address']
-                quote_address = order_info['quote_address']
-                is_bid = order_info['is_bid']
-                blockchain_order_id = order_info['blockchain_order_id']
+                base_address = order_info["base_address"]
+                quote_address = order_info["quote_address"]
+                is_bid = order_info["is_bid"]
+                blockchain_order_id = order_info["blockchain_order_id"]
 
                 self.logger().info("Found order mapping for {order_id}: blockchain_order_id={blockchain_order_id}")
 
@@ -2214,12 +3210,14 @@ class StandardExchange(ExchangePyBase):
 
                     if extracted_order_id == "IMMEDIATELY_FILLED":
                         self.logger().info(
-                            f"Order {order_id} was immediately filled - no order to cancel on blockchain")
+                            f"Order {order_id} was immediately filled - no order to cancel on blockchain"
+                        )
                         cancellation_id = f"immediately_filled_{order_id}"
                         return cancellation_id
                     elif extracted_order_id is None:
                         self.logger().warning(
-                            f"Could not extract order ID from transaction {blockchain_order_id}, using local cancellation")
+                            f"Could not extract order ID from transaction {blockchain_order_id}, using local cancellation"
+                        )
                         cancellation_id = f"cancelled_{order_id}"
                         return cancellation_id
 
@@ -2228,16 +3226,14 @@ class StandardExchange(ExchangePyBase):
 
                 elif not isinstance(blockchain_order_id, int):
                     self.logger().warning(
-                        f"Invalid blockchain order ID type: {type(blockchain_order_id)}, value: {blockchain_order_id}")
+                        f"Invalid blockchain order ID type: {type(blockchain_order_id)}, value: {blockchain_order_id}"
+                    )
                     cancellation_id = f"cancelled_{order_id}"
                     return cancellation_id
 
                 # Cancel order using direct contract interaction with integer order ID (fallback method)
                 cancel_tx_hash = await self._cancel_order_on_contract(
-                    base_address=base_address,
-                    quote_address=quote_address,
-                    is_bid=is_bid,
-                    order_id=blockchain_order_id
+                    base_address=base_address, quote_address=quote_address, is_bid=is_bid, order_id=blockchain_order_id
                 )
 
                 # Clean up the stored order info
@@ -2255,24 +3251,29 @@ class StandardExchange(ExchangePyBase):
                 # Get the blockchain order ID from our stored mapping
                 if order_id in self._order_id_map:
                     order_mapping = self._order_id_map[order_id]
-                    blockchain_order_id = order_mapping.get('blockchain_order_id')
+                    blockchain_order_id = order_mapping.get("blockchain_order_id")
 
                     self.logger().info(
-                        "Found stored order mapping for {order_id}: blockchain_order_id={blockchain_order_id}")
+                        "Found stored order mapping for {order_id}: blockchain_order_id={blockchain_order_id}"
+                    )
 
                     # If blockchain_order_id is a transaction hash (string), we need to extract the real order ID
                     if isinstance(blockchain_order_id, str):
-                        self.logger().info(f"Blockchain order ID is a transaction hash, extracting order ID from receipt")
+                        self.logger().info(
+                            f"Blockchain order ID is a transaction hash, extracting order ID from receipt"
+                        )
                         blockchain_order_id = await self._extract_order_id_from_transaction_receipt(blockchain_order_id)
 
                         if blockchain_order_id is None:
                             self.logger().warning(
-                                f"Could not extract order ID from transaction {exchange_order_id}, using local cancellation")
+                                f"Could not extract order ID from transaction {exchange_order_id}, using local cancellation"
+                            )
                             cancellation_id = f"cancelled_{order_id}"
                             return cancellation_id
                     elif not isinstance(blockchain_order_id, int):
                         self.logger().warning(
-                            f"Invalid blockchain order ID type: {type(blockchain_order_id)}, value: {blockchain_order_id}")
+                            f"Invalid blockchain order ID type: {type(blockchain_order_id)}, value: {blockchain_order_id}"
+                        )
                         cancellation_id = f"cancelled_{order_id}"
                         return cancellation_id
                 else:
@@ -2282,10 +3283,7 @@ class StandardExchange(ExchangePyBase):
 
                 # Cancel order using direct contract interaction
                 cancel_tx_hash = await self._cancel_order_on_contract(
-                    base_address=base_address,
-                    quote_address=quote_address,
-                    is_bid=is_bid,
-                    order_id=blockchain_order_id
+                    base_address=base_address, quote_address=quote_address, is_bid=is_bid, order_id=blockchain_order_id
                 )
 
                 self.logger().info(f"Order cancelled on contract: {order_id} -> {cancel_tx_hash}")
@@ -2318,8 +3316,8 @@ class StandardExchange(ExchangePyBase):
             from web3 import Web3
 
             # Load local ABI file (more up-to-date than standardweb3 package)
-            abi_path = os.path.join(os.path.dirname(__file__), 'lib', 'matching_engine_abi.json')
-            with open(abi_path, 'r') as f:
+            abi_path = os.path.join(os.path.dirname(__file__), "lib", "matching_engine_abi.json")
+            with open(abi_path, "r") as f:
                 matching_engine_abi = json.load(f)
 
             # Connect to Somnia network
@@ -2352,7 +3350,8 @@ class StandardExchange(ExchangePyBase):
             # Process each log in the receipt
             for i, log in enumerate(receipt.logs):
                 self.logger().info(
-                    f"Log {i}: address={log.address.lower()}, is_exchange={log.address.lower() == exchange_address.lower()}")
+                    f"Log {i}: address={log.address.lower()}, is_exchange={log.address.lower() == exchange_address.lower()}"
+                )
 
                 # Only process logs from our exchange contract
                 if log.address.lower() != exchange_address.lower():
@@ -2365,7 +3364,7 @@ class StandardExchange(ExchangePyBase):
                     decoded_log = contract.events.OrderPlaced().process_log(log)
 
                     # Extract the order ID (the 'id' field)
-                    order_id = decoded_log['args']['id']
+                    order_id = decoded_log["args"]["id"]
                     self.logger().info(f"Extracted order ID from OrderPlaced event: {order_id} (tx: {tx_hash})")
                     return order_id
 
@@ -2395,7 +3394,9 @@ class StandardExchange(ExchangePyBase):
             self.logger().error(f"Error extracting order ID from transaction receipt {tx_hash}: {e}")
             return None
 
-    async def _cancel_order_on_contract(self, base_address: str, quote_address: str, is_bid: bool, order_id: int) -> str:
+    async def _cancel_order_on_contract(
+        self, base_address: str, quote_address: str, is_bid: bool, order_id: int
+    ) -> str:
         """
         Cancel an order directly on the smart contract.
 
@@ -2416,8 +3417,8 @@ class StandardExchange(ExchangePyBase):
             from web3 import Web3
 
             # Load local ABI file (more up-to-date than standardweb3 package)
-            abi_path = os.path.join(os.path.dirname(__file__), 'lib', 'matching_engine_abi.json')
-            with open(abi_path, 'r') as f:
+            abi_path = os.path.join(os.path.dirname(__file__), "lib", "matching_engine_abi.json")
+            with open(abi_path, "r") as f:
                 matching_engine_abi = json.load(f)
 
             # Connect to Somnia network
@@ -2437,17 +3438,16 @@ class StandardExchange(ExchangePyBase):
 
                 # Build transaction
                 transaction = contract.functions.cancelOrder(
-                    Web3.to_checksum_address(base_address),
-                    Web3.to_checksum_address(quote_address),
-                    is_bid,
-                    order_id
-                ).build_transaction({
-                    'from': account.address,
-                    'nonce': nonce,
-                    'gas': 200000,  # Estimate gas limit for cancel order
-                    'gasPrice': w3.eth.gas_price,
-                    'chainId': CONSTANTS.SOMNIA_CHAIN_ID
-                })
+                    Web3.to_checksum_address(base_address), Web3.to_checksum_address(quote_address), is_bid, order_id
+                ).build_transaction(
+                    {
+                        "from": account.address,
+                        "nonce": nonce,
+                        "gas": 200000,  # Estimate gas limit for cancel order
+                        "gasPrice": w3.eth.gas_price,
+                        "chainId": CONSTANTS.SOMNIA_CHAIN_ID,
+                    }
+                )
 
                 # Sign and send transaction
                 signed_txn = account.sign_transaction(transaction)
@@ -2681,7 +3681,7 @@ class StandardExchange(ExchangePyBase):
             if token.upper() in CONSTANTS.NATIVE_TOKEN_LIST:
                 # For other native tokens
                 balance_wei = w3.eth.get_balance(wallet_address)
-                balance = w3.from_wei(balance_wei, 'ether')
+                balance = w3.from_wei(balance_wei, "ether")
                 balance_decimal = Decimal(str(balance))
                 self.logger().debug(f"Native {token} balance: {balance_decimal}")
                 return balance_decimal
@@ -2700,22 +3700,19 @@ class StandardExchange(ExchangePyBase):
                     "inputs": [{"name": "_owner", "type": "address"}],
                     "name": "balanceOf",
                     "outputs": [{"name": "balance", "type": "uint256"}],
-                    "type": "function"
+                    "type": "function",
                 },
                 {
                     "constant": True,
                     "inputs": [],
                     "name": "decimals",
                     "outputs": [{"name": "", "type": "uint8"}],
-                    "type": "function"
-                }
+                    "type": "function",
+                },
             ]
 
             # Create contract instance with proper checksum addresses
-            contract = w3.eth.contract(
-                address=w3.to_checksum_address(token_address),
-                abi=erc20_abi
-            )
+            contract = w3.eth.contract(address=w3.to_checksum_address(token_address), abi=erc20_abi)
 
             # Get balance using Web3.to_checksum_address for safety
             balance_wei = contract.functions.balanceOf(w3.to_checksum_address(wallet_address)).call()
@@ -2728,7 +3725,7 @@ class StandardExchange(ExchangePyBase):
                 decimals = 18
 
             # Convert to human readable format
-            balance = Decimal(balance_wei) / Decimal(10 ** decimals)
+            balance = Decimal(balance_wei) / Decimal(10**decimals)
             self.logger().debug(f"ERC-20 {token} balance: {balance} (decimals: {decimals})")
             return balance
 
@@ -2755,9 +3752,7 @@ class StandardExchange(ExchangePyBase):
 
             # Get token information
             token_response = await rest_assistant.execute_request(
-                url=token_info_url,
-                method=RESTMethod.GET,
-                throttler_limit_id=CONSTANTS.GET_TOKEN_INFO_PATH_URL
+                url=token_info_url, method=RESTMethod.GET, throttler_limit_id=CONSTANTS.GET_TOKEN_INFO_PATH_URL
             )
 
             if token_response.get("id"):
@@ -2769,9 +3764,7 @@ class StandardExchange(ExchangePyBase):
                     # Try to get account data for potential balance information
                     account_url = f"{CONSTANTS.STANDARD_API_URL}/api/account/{self._wallet_address}"
                     account_response = await rest_assistant.execute_request(
-                        url=account_url,
-                        method=RESTMethod.GET,
-                        throttler_limit_id=CONSTANTS.GET_ACCOUNT_INFO_PATH_URL
+                        url=account_url, method=RESTMethod.GET, throttler_limit_id=CONSTANTS.GET_ACCOUNT_INFO_PATH_URL
                     )
 
                     # For now, return 0 as API doesn't provide direct balance
@@ -2809,9 +3802,7 @@ class StandardExchange(ExchangePyBase):
 
             # Fetch account trade history using StandardWeb3
             trades_response = await self._standard_client.fetch_account_trade_history_paginated_with_limit(
-                address=self._wallet_address,
-                limit=100,  # Get recent trades
-                page=1
+                address=self._wallet_address, limit=100, page=1  # Get recent trades
             )
 
             trade_updates = []
@@ -2880,9 +3871,7 @@ class StandardExchange(ExchangePyBase):
             fee_currency = trade.get("fee_currency", order.quote_asset)
 
             # Create trade fee
-            trade_fee = AddedToCostTradeFee(
-                flat_fees=[TokenAmount(token=fee_currency, amount=fee_amount)]
-            )
+            trade_fee = AddedToCostTradeFee(flat_fees=[TokenAmount(token=fee_currency, amount=fee_amount)])
 
             # Get trade timestamp
             trade_time = trade.get("timestamp", time.time())
@@ -2923,9 +3912,7 @@ class StandardExchange(ExchangePyBase):
             # Since there's no direct get_order_status, we'll fetch recent orders
             # and find the one matching our exchange_order_id
             orders_response = await self._standard_client.fetch_account_orders_paginated_with_limit(
-                address=self._wallet_address,
-                limit=50,  # Get recent orders
-                page=1
+                address=self._wallet_address, limit=50, page=1  # Get recent orders
             )
 
             # Look for our order in the response
@@ -2939,9 +3926,7 @@ class StandardExchange(ExchangePyBase):
             if not order_status:
                 # If not found in active orders, check order history
                 history_response = await self._standard_client.fetch_account_order_history_paginated_with_limit(
-                    address=self._wallet_address,
-                    limit=50,
-                    page=1
+                    address=self._wallet_address, limit=50, page=1
                 )
 
                 if history_response and "orders" in history_response:
@@ -2960,7 +3945,8 @@ class StandardExchange(ExchangePyBase):
                 # Only mark as failed if order is older than 5 minutes and still not found
                 if time_since_creation > 300:  # 5 minutes
                     self.logger().warning(
-                        f"Order {tracked_order.client_order_id} not found after 5 minutes, marking as failed")
+                        f"Order {tracked_order.client_order_id} not found after 5 minutes, marking as failed"
+                    )
                     return OrderUpdate(
                         trading_pair=tracked_order.trading_pair,
                         update_timestamp=time.time(),
@@ -2971,7 +3957,8 @@ class StandardExchange(ExchangePyBase):
                 else:
                     # Order is still new, assume it's OPEN and wait for indexing
                     self.logger().debug(
-                        f"Order {tracked_order.client_order_id} not found yet (age: {time_since_creation:.1f}s), assuming OPEN")
+                        f"Order {tracked_order.client_order_id} not found yet (age: {time_since_creation:.1f}s), assuming OPEN"
+                    )
                     return OrderUpdate(
                         trading_pair=tracked_order.trading_pair,
                         update_timestamp=time.time(),
@@ -3083,7 +4070,7 @@ class StandardExchange(ExchangePyBase):
         return {
             "symbol": token_symbol,
             "address": utils.convert_symbol_to_address(token_symbol, self._domain),
-            "decimals": utils.get_token_decimals(token_symbol)
+            "decimals": utils.get_token_decimals(token_symbol),
         }
 
     def _get_web3_balance(self, token: str) -> Decimal:
@@ -3098,6 +4085,7 @@ class StandardExchange(ExchangePyBase):
         """
         # This is a sync wrapper that the tests expect
         import asyncio
+
         try:
             loop = asyncio.get_event_loop()
             return loop.run_until_complete(self._get_token_balance_web3(token))
@@ -3192,6 +4180,7 @@ class StandardExchange(ExchangePyBase):
                 except Exception as e:
                     self.logger().error("DEBUG: Error processing trading pair {trading_pair}: {e}")
                     import traceback
+
                     self.logger().error("DEBUG: Traceback: {traceback.format_exc()}")
 
         self.logger().info("DEBUG: Final mapping before setting: {dict(mapping)}")
@@ -3202,7 +4191,7 @@ class StandardExchange(ExchangePyBase):
         self.logger().info("DEBUG: Called _set_trading_pair_symbol_map")
 
         # Verify it was set
-        current_map = getattr(self, '_trading_pair_symbol_map', 'NOT SET')
+        current_map = getattr(self, "_trading_pair_symbol_map", "NOT SET")
         self.logger().info("DEBUG: After setting, _trading_pair_symbol_map = {current_map}")
         self.logger().info("DEBUG: trading_pair_symbol_map_ready() = {self.trading_pair_symbol_map_ready()}")
 
@@ -3238,9 +4227,7 @@ class StandardExchange(ExchangePyBase):
             # Fetch order history using StandardWeb3 client
             try:
                 orders_response = await self._standard_client.fetch_account_order_history_paginated_with_limit(
-                    address=self._wallet_address,
-                    limit=100,  # Get last 100 orders
-                    page=1
+                    address=self._wallet_address, limit=100, page=1  # Get last 100 orders
                 )
 
                 if orders_response and "orders" in orders_response:
@@ -3261,9 +4248,7 @@ class StandardExchange(ExchangePyBase):
                 orders_url = f"{CONSTANTS.STANDARD_API_URL}/api/orders/{self._wallet_address}/100/1"
 
                 orders_response = await rest_assistant.execute_request(
-                    url=orders_url,
-                    method=RESTMethod.GET,
-                    throttler_limit_id=CONSTANTS.GET_ACCOUNT_ORDERS_PATH_URL
+                    url=orders_url, method=RESTMethod.GET, throttler_limit_id=CONSTANTS.GET_ACCOUNT_ORDERS_PATH_URL
                 )
 
                 if orders_response and isinstance(orders_response, dict):
@@ -3296,9 +4281,7 @@ class StandardExchange(ExchangePyBase):
             # Fetch trade history using StandardWeb3 client
             try:
                 trades_response = await self._standard_client.fetch_account_trade_history_paginated_with_limit(
-                    address=self._wallet_address,
-                    limit=100,  # Get last 100 trades
-                    page=1
+                    address=self._wallet_address, limit=100, page=1  # Get last 100 trades
                 )
 
                 if trades_response and "trades" in trades_response:
@@ -3319,9 +4302,7 @@ class StandardExchange(ExchangePyBase):
                 trades_url = f"{CONSTANTS.STANDARD_API_URL}/api/tradehistory/{self._wallet_address}/100/1"
 
                 trades_response = await rest_assistant.execute_request(
-                    url=trades_url,
-                    method=RESTMethod.GET,
-                    throttler_limit_id=CONSTANTS.GET_ACCOUNT_TRADES_PATH_URL
+                    url=trades_url, method=RESTMethod.GET, throttler_limit_id=CONSTANTS.GET_ACCOUNT_TRADES_PATH_URL
                 )
 
                 if trades_response and isinstance(trades_response, dict):
@@ -3380,8 +4361,16 @@ class StandardExchange(ExchangePyBase):
 
                     # Return minimal DataFrame structure for now
                     columns = [
-                        'symbol', 'order_id', 'timestamp', 'order_type', 'side',
-                        'amount', 'price', 'status', 'trade_fee', 'exchange_order_id'
+                        "symbol",
+                        "order_id",
+                        "timestamp",
+                        "order_type",
+                        "side",
+                        "amount",
+                        "price",
+                        "status",
+                        "trade_fee",
+                        "exchange_order_id",
                     ]
                     df = pd.DataFrame(columns=columns)
                     return df
@@ -3403,16 +4392,16 @@ class StandardExchange(ExchangePyBase):
             for order in order_history:
                 try:
                     order_entry = {
-                        'symbol': order.get('trading_pair', order.get('symbol', 'Unknown')),
-                        'order_id': order.get('order_id', order.get('id', 'Unknown')),
-                        'timestamp': order.get('timestamp', order.get('created_at', 'Unknown')),
-                        'order_type': order.get('order_type', order.get('type', 'Unknown')),
-                        'side': order.get('side', 'Unknown'),
-                        'amount': float(order.get('amount', order.get('quantity', 0))),
-                        'price': float(order.get('price', 0)),
-                        'status': order.get('status', 'Unknown'),
-                        'trade_fee': float(order.get('fee', 0)),
-                        'exchange_order_id': order.get('tx_hash', order.get('transaction_hash', 'Unknown'))
+                        "symbol": order.get("trading_pair", order.get("symbol", "Unknown")),
+                        "order_id": order.get("order_id", order.get("id", "Unknown")),
+                        "timestamp": order.get("timestamp", order.get("created_at", "Unknown")),
+                        "order_type": order.get("order_type", order.get("type", "Unknown")),
+                        "side": order.get("side", "Unknown"),
+                        "amount": float(order.get("amount", order.get("quantity", 0))),
+                        "price": float(order.get("price", 0)),
+                        "status": order.get("status", "Unknown"),
+                        "trade_fee": float(order.get("fee", 0)),
+                        "exchange_order_id": order.get("tx_hash", order.get("transaction_hash", "Unknown")),
                     }
                     order_data.append(order_entry)
                 except Exception as e:
@@ -3423,16 +4412,16 @@ class StandardExchange(ExchangePyBase):
             for trade in trade_history:
                 try:
                     trade_entry = {
-                        'symbol': trade.get('trading_pair', trade.get('symbol', 'Unknown')),
-                        'order_id': trade.get('order_id', 'Trade'),
-                        'timestamp': trade.get('timestamp', trade.get('created_at', 'Unknown')),
-                        'order_type': 'TRADE',
-                        'side': trade.get('side', 'Unknown'),
-                        'amount': float(trade.get('amount', trade.get('quantity', 0))),
-                        'price': float(trade.get('price', 0)),
-                        'status': 'FILLED',
-                        'trade_fee': float(trade.get('fee', 0)),
-                        'exchange_order_id': trade.get('tx_hash', trade.get('transaction_hash', 'Unknown'))
+                        "symbol": trade.get("trading_pair", trade.get("symbol", "Unknown")),
+                        "order_id": trade.get("order_id", "Trade"),
+                        "timestamp": trade.get("timestamp", trade.get("created_at", "Unknown")),
+                        "order_type": "TRADE",
+                        "side": trade.get("side", "Unknown"),
+                        "amount": float(trade.get("amount", trade.get("quantity", 0))),
+                        "price": float(trade.get("price", 0)),
+                        "status": "FILLED",
+                        "trade_fee": float(trade.get("fee", 0)),
+                        "exchange_order_id": trade.get("tx_hash", trade.get("transaction_hash", "Unknown")),
                     }
                     order_data.append(trade_entry)
                 except Exception as e:
@@ -3443,16 +4432,24 @@ class StandardExchange(ExchangePyBase):
             if order_data:
                 df = pd.DataFrame(order_data)
                 # Sort by timestamp (most recent first)
-                if 'timestamp' in df.columns:
-                    df = df.sort_values('timestamp', ascending=False)
+                if "timestamp" in df.columns:
+                    df = df.sort_values("timestamp", ascending=False)
 
                 self.logger().info(f"Order history DataFrame created with {len(df)} entries")
                 return df
             else:
                 # Create empty DataFrame with proper columns
                 columns = [
-                    'symbol', 'order_id', 'timestamp', 'order_type', 'side',
-                    'amount', 'price', 'status', 'trade_fee', 'exchange_order_id'
+                    "symbol",
+                    "order_id",
+                    "timestamp",
+                    "order_type",
+                    "side",
+                    "amount",
+                    "price",
+                    "status",
+                    "trade_fee",
+                    "exchange_order_id",
                 ]
                 df = pd.DataFrame(columns=columns)
                 self.logger().info("No order/trade history found - returning empty DataFrame")
@@ -3464,8 +4461,16 @@ class StandardExchange(ExchangePyBase):
             # Return empty DataFrame on error
             if pd is not None:
                 columns = [
-                    'symbol', 'order_id', 'timestamp', 'order_type', 'side',
-                    'amount', 'price', 'status', 'trade_fee', 'exchange_order_id'
+                    "symbol",
+                    "order_id",
+                    "timestamp",
+                    "order_type",
+                    "side",
+                    "amount",
+                    "price",
+                    "status",
+                    "trade_fee",
+                    "exchange_order_id",
                 ]
                 return pd.DataFrame(columns=columns)
             else:
@@ -3504,7 +4509,8 @@ class StandardExchange(ExchangePyBase):
             # Check if VWAP calculation failed due to insufficient liquidity
             if vwap_result.result_price.is_nan():
                 self.logger().warning(
-                    f"VWAP calculation failed for {trading_pair} {amount} ({'buy' if is_buy else 'sell'}) - insufficient liquidity")
+                    f"VWAP calculation failed for {trading_pair} {amount} ({'buy' if is_buy else 'sell'}) - insufficient liquidity"
+                )
 
                 # Fallback to best bid/ask price
                 if is_buy and len(asks) > 0:
@@ -3530,3 +4536,141 @@ class StandardExchange(ExchangePyBase):
         Override to use the enhanced quote price calculation.
         """
         return await self.get_quote_price(trading_pair, is_buy, amount)
+
+    # 🎯 PHASE 4 EXTENSION: Enhanced Cancellation Error Handling
+
+    async def _execute_cancellation_with_retry(self, order_id: str, order_info: Dict) -> str:
+        """Execute cancellation with retry logic and better error handling."""
+        max_retries = 2
+        base_address = order_info["base_address"]
+        quote_address = order_info["quote_address"]
+        is_bid = order_info["is_bid"]
+        blockchain_order_id = order_info["blockchain_order_id"]
+
+        for attempt in range(max_retries + 1):
+            try:
+                self.logger().info(f"🔄 Cancellation attempt {attempt + 1}/{max_retries + 1} for {order_id}")
+
+                # Try StandardWeb3 client first
+                cancellation_result = await self._standard_client.cancel_orders(
+                    base_address=base_address, quote_address=quote_address, is_bid=is_bid, orders=[blockchain_order_id]
+                )
+
+                if cancellation_result and cancellation_result.get("tx_hash"):
+                    tx_hash = cancellation_result["tx_hash"]
+                    self.logger().info(f"✅ StandardWeb3 cancellation successful: {tx_hash}")
+                    return tx_hash
+                else:
+                    raise Exception("StandardWeb3 cancellation returned no tx_hash")
+
+            except Exception as e:
+                self.logger().warning(f"⚠️  Cancellation attempt {attempt + 1} failed: {e}")
+
+                if attempt == max_retries:
+                    # Final attempt: try direct contract call
+                    self.logger().info(f"🔧 Falling back to direct contract cancellation for {order_id}")
+                    return await self._cancel_order_on_contract(
+                        base_address, quote_address, is_bid, blockchain_order_id
+                    )
+
+                # Wait before retry
+                await asyncio.sleep(1.0)
+
+        raise Exception("All cancellation attempts failed")
+
+    def _record_cancellation_attempt(self, order_id: str, status: str, duration_ms: float = None):
+        """Record cancellation attempt for metrics and analysis."""
+        try:
+            # Initialize cancellation metrics if not exists
+            if not hasattr(self, "_cancellation_metrics"):
+                self._cancellation_metrics = {
+                    "total_attempts": 0,
+                    "successful_cancellations": 0,
+                    "failed_cancellations": 0,
+                    "timeout_cancellations": 0,
+                    "local_cancellations": 0,
+                    "recent_cancellations": [],
+                }
+
+            metrics = self._cancellation_metrics
+            metrics["total_attempts"] += 1
+
+            if status == "success":
+                metrics["successful_cancellations"] += 1
+            elif status == "success_local":
+                metrics["local_cancellations"] += 1
+            elif status == "timeout":
+                metrics["timeout_cancellations"] += 1
+            elif status == "failed":
+                metrics["failed_cancellations"] += 1
+
+            # Record recent cancellation
+            cancellation_record = {
+                "timestamp": time.time(),
+                "order_id": order_id,
+                "status": status,
+                "duration_ms": duration_ms,
+            }
+
+            metrics["recent_cancellations"].append(cancellation_record)
+            if len(metrics["recent_cancellations"]) > 50:
+                metrics["recent_cancellations"] = metrics["recent_cancellations"][-50:]
+
+            # Log structured event
+            if duration_ms:
+                self.logger().info(
+                    f"📊 CANCELLATION_EVENT: {status} | Order: {order_id} | " f"Duration: {duration_ms:.2f}ms"
+                )
+
+        except Exception as e:
+            self.logger().error(f"Error recording cancellation metrics: {e}")
+
+    def _handle_cancellation_timeout(self, order_id: str, timeout_duration: float):
+        """Handle cancellation timeout with user guidance."""
+        try:
+            # Provide helpful guidance
+            self.logger().warning(
+                f"🔧 CANCELLATION TIMEOUT GUIDANCE for {order_id}:\n"
+                f"   • Timeout after {timeout_duration:.0f}ms\n"
+                f"   • Transaction may still be processing on blockchain\n"
+                f"   • Check blockchain explorer for transaction status\n"
+                f"   • Order may cancel automatically once transaction confirms\n"
+                f"   • Consider increasing network gas price for faster processing"
+            )
+
+            # Emit timeout event for monitoring systems
+            self._emit_transaction_event(
+                "cancellation_timeout",
+                {
+                    "order_id": order_id,
+                    "timeout_duration": timeout_duration,
+                    "suggested_action": "Monitor blockchain for transaction confirmation",
+                },
+            )
+
+        except Exception as e:
+            self.logger().error(f"Error handling cancellation timeout: {e}")
+
+    def get_cancellation_metrics(self) -> Dict:
+        """Get cancellation performance metrics."""
+        try:
+            if not hasattr(self, "_cancellation_metrics"):
+                return {"total_attempts": 0, "success_rate": 0.0, "timeout_rate": 0.0, "recent_cancellations": []}
+
+            metrics = self._cancellation_metrics.copy()
+
+            # Calculate success rate
+            total = metrics["total_attempts"]
+            if total > 0:
+                successful = metrics["successful_cancellations"] + metrics["local_cancellations"]
+                metrics["success_rate"] = (successful / total) * 100
+                metrics["timeout_rate"] = (metrics["timeout_cancellations"] / total) * 100
+            else:
+                metrics["success_rate"] = 0.0
+                metrics["timeout_rate"] = 0.0
+
+            return metrics
+
+        except Exception as e:
+            self.logger().error(f"Error getting cancellation metrics: {e}")
+            return {"error": str(e)}
