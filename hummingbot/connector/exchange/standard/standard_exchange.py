@@ -97,31 +97,6 @@ class StandardExchange(ExchangePyBase):
             cls._logger = logging.getLogger(__name__)
         return cls._logger
 
-    @classmethod
-    def _should_log_error(cls) -> bool:
-        """
-        Check if we should log an error based on rate limiting.
-
-        Returns:
-            True if error should be logged, False if rate limited
-        """
-        current_time = time.time()
-
-        # Reset error count if time window has passed
-        if current_time - cls._last_error_time > cls._error_time_window:
-            cls._error_count = 0
-            cls._last_error_time = current_time
-
-        # Increment error count
-        cls._error_count += 1
-
-        # Check if we've exceeded the rate limit
-        if cls._error_count > cls._error_rate_limit:
-            return False
-
-        cls._last_error_time = current_time
-        return True
-
     def __init__(
         self,
         client_config_map: "ClientConfigAdapter",
@@ -269,39 +244,6 @@ class StandardExchange(ExchangePyBase):
         self.logger().info("DEBUG: StandardExchange.__init__ completed successfully")
 
     @staticmethod
-    def standard_order_type(order_type: OrderType) -> str:
-        """
-        Convert Hummingbot order type to Somnia format.
-
-        Args:
-            order_type: Hummingbot order type
-
-        Returns:
-            Somnia order type string
-        """
-        return {
-            OrderType.LIMIT: "limit",
-            OrderType.MARKET: "market",
-            OrderType.LIMIT_MAKER: "limit_maker",
-        }.get(order_type, "limit")
-
-    @staticmethod
-    def to_hb_order_type(standard_type: str) -> OrderType:
-        """
-        Convert Somnia order type to Hummingbot format.
-
-        Args:
-            standard_type: Somnia order type
-
-        Returns:
-            Hummingbot OrderType
-        """
-        return {
-            "limit": OrderType.LIMIT,
-            "market": OrderType.MARKET,
-            "limit_maker": OrderType.LIMIT_MAKER,
-        }.get(standard_type, OrderType.LIMIT) @ property
-
     def authenticator(self) -> StandardAuth:
         """Get authenticator instance."""
         return self._auth
@@ -364,9 +306,159 @@ class StandardExchange(ExchangePyBase):
             self.logger().error(f"Network check failed: {e}")
             return NetworkStatus.NOT_CONNECTED
 
-    # ====== MISSING CRITICAL METHODS FROM VERTEX ======
+    # 💰 GAS & BALANCE MANAGEMENT
+    _min_gas_balance_wei = None  # Minimum SOMI balance for gas fees
+    _gas_buffer_multiplier = 2.0  # Buffer for gas price volatility
+    _last_gas_check_time = 0
+    _gas_check_interval = 30  # Check gas balance every 30 seconds
+    _last_gas_price = None  # Cached gas price
+    _last_gas_price_time = 0
+    _gas_price_cache_duration = 30  # Cache gas price for 30 seconds
 
-    # 🔄 PHASE 1: Transaction monitoring infrastructure (stub methods)
+    async def _get_cached_gas_price(self) -> int:
+        """
+        Get cached gas price to avoid redundant Web3 calls.
+        Caches gas price for 30 seconds to balance accuracy and performance.
+
+        Returns:
+            Gas price in wei
+        """
+        current_time = time.time()
+
+        # Return cached gas price if still valid
+        if (
+            self._last_gas_price is not None
+            and current_time - self._last_gas_price_time < self._gas_price_cache_duration
+        ):
+            return self._last_gas_price
+
+        # Fetch new gas price
+        try:
+            from web3 import Web3
+
+            rpc_url = CONSTANTS.DOMAIN_CONFIG[self._domain]["rpc_url"]
+            w3 = Web3(Web3.HTTPProvider(rpc_url))
+
+            gas_price = w3.eth.gas_price
+
+            # Cache the result
+            self._last_gas_price = gas_price
+            self._last_gas_price_time = current_time
+
+            self.logger().debug(f"Updated cached gas price: {gas_price} wei")
+            return gas_price
+
+        except Exception as e:
+            self.logger().warning(f"Failed to get gas price, using fallback: {e}")
+            fallback_gas_price = 20 * 10**9  # 20 Gwei fallback
+
+            # Cache the fallback too
+            self._last_gas_price = fallback_gas_price
+            self._last_gas_price_time = current_time
+
+            return fallback_gas_price
+
+    async def _check_gas_balance_sufficient(self) -> bool:
+        """
+        Check if wallet has sufficient native token balance for gas fees.
+        Uses already-fetched balance data to avoid redundant Web3 calls.
+
+        Returns:
+            True if sufficient gas balance, False otherwise
+        """
+        try:
+            current_time = time.time()
+
+            # Only check gas balance every 30 seconds to avoid excessive calculations
+            if current_time - self._last_gas_check_time < self._gas_check_interval:
+                return True  # Assume sufficient if checked recently
+
+            self._last_gas_check_time = current_time
+
+            # Get native token balance from already-fetched data (avoids redundant Web3 call)
+            native_token = CONSTANTS.NATIVE_TOKEN
+            balance_somi = self.get_balance(native_token)
+
+            if balance_somi <= 0:
+                self.logger().warning(f"⚠️ No {native_token} balance found for gas fees")
+                return False
+
+            # Calculate minimum gas balance needed (estimate for ~10 transactions)
+            # Use cached gas price to avoid redundant Web3 calls
+            gas_price = await self._get_cached_gas_price()
+
+            estimated_gas_per_tx = 200000  # Conservative estimate
+            gas_needed_for_10_tx = gas_price * estimated_gas_per_tx * 10 * self._gas_buffer_multiplier
+
+            # Convert to Decimal using proper scaling
+            min_balance_needed = Decimal(gas_needed_for_10_tx) / Decimal(10**18)
+
+            self._min_gas_balance_wei = gas_needed_for_10_tx
+
+            if balance_somi < min_balance_needed:
+                self.logger().warning(
+                    f"⚠️  LOW GAS BALANCE WARNING: {balance_somi:.6f} {native_token} "
+                    f"(Need: {min_balance_needed:.6f} {native_token} for ~10 transactions)"
+                )
+
+                # If balance is critically low (less than 2 transactions), prevent new orders
+                critical_threshold = Decimal(gas_price * estimated_gas_per_tx * 2) / Decimal(10**18)
+                if balance_somi < critical_threshold:
+                    self.logger().error(
+                        f"🚨 CRITICAL GAS BALANCE: {balance_somi:.6f} {native_token} "
+                        f"(Critical threshold: {critical_threshold:.6f} {native_token})"
+                    )
+                    return False
+            else:
+                self.logger().debug(
+                    f"✅ Gas balance sufficient: {balance_somi:.6f} {native_token} "
+                    f"(Need: {min_balance_needed:.6f} {native_token})"
+                )
+
+            return True
+
+        except Exception as e:
+            self.logger().error(f"Error checking gas balance: {e}")
+            # Return True to avoid blocking operations if check fails
+            return True
+
+    async def _ensure_sufficient_gas_before_transaction(self, operation_type: str) -> bool:
+        """
+        Ensure sufficient gas balance before attempting blockchain transactions.
+
+        Args:
+            operation_type: Type of operation ('place_order', 'cancel_order', etc.)
+
+        Returns:
+            True if sufficient gas, False if should skip transaction
+        """
+        try:
+            if not await self._check_gas_balance_sufficient():
+                self.logger().error(
+                    f"❌ Skipping {operation_type} due to insufficient gas balance. "
+                    f"Please deposit SOMI for gas fees."
+                )
+
+                # Emit event for monitoring systems
+                self._emit_transaction_event(
+                    "insufficient_gas",
+                    {
+                        "operation_type": operation_type,
+                        "timestamp": time.time(),
+                        "wallet_address": self._wallet_address,
+                        "message": "Transaction skipped due to insufficient gas balance",
+                    },
+                )
+
+                return False
+
+            return True
+
+        except Exception as e:
+            self.logger().error(f"Error in gas balance check for {operation_type}: {e}")
+            # Allow transaction to proceed if check fails
+            return True
+
     async def _start_tx_monitoring(self):
         """Start background transaction monitoring task."""
         if self._tx_monitor_task is None or self._tx_monitor_task.done():
@@ -918,16 +1010,212 @@ class StandardExchange(ExchangePyBase):
             await super().start_network()
             self.logger().info("DEBUG: super().start_network() completed successfully")
 
-            # 🔄 PHASE 1: Start transaction monitoring (stub)
+            # 🔄 PHASE 3: Start transaction monitoring
             await self._start_tx_monitoring()
 
-            self.logger().info("Somnia network started successfully")
+            self.logger().info("🎉 Somnia network started successfully")
         except Exception as e:
-            self.logger().error("DEBUG: Exception in start_network(): {e}")
+            self.logger().error(f"DEBUG: Exception in start_network(): {e}")
             self.logger().error(f"Failed to start Somnia network: {e}")
             self.logger().exception("Full traceback:")
             # Don't raise - let the system continue
             pass
+
+    async def stop_network(self):
+        """
+        Stop network and cleanup resources when connector shuts down.
+        This method is called during connector shutdown.
+        """
+        try:
+            self.logger().info("🛑 Stopping Somnia network...")
+
+            # Stop transaction monitoring first
+            await self._stop_tx_monitoring()
+
+            # Call parent's stop_network to cleanup all background tasks
+            await super().stop_network()
+
+            self.logger().info("✅ Somnia network stopped successfully")
+
+        except Exception as e:
+            self.logger().error(f"Error stopping Somnia network: {e}")
+            # Still call parent's stop_network to ensure proper cleanup
+            try:
+                await super().stop_network()
+            except Exception as parent_error:
+                self.logger().error(f"Error in parent stop_network: {parent_error}")
+
+    async def cancel_all(self, timeout_seconds: float) -> List:
+        """
+        Cancel all active orders with timeout support.
+        Enhanced version that leverages our blockchain transaction tracking.
+
+        Args:
+            timeout_seconds: Maximum time to wait for cancellations
+
+        Returns:
+            List of cancellation results
+        """
+        try:
+            from hummingbot.core.data_type.cancellation_result import CancellationResult
+
+            self.logger().info(f"🚫 Cancelling all orders with {timeout_seconds}s timeout...")
+
+            # Get all active orders
+            active_orders = list(self._order_tracker.active_orders.values())
+            if not active_orders:
+                self.logger().info("No active orders to cancel")
+                return []
+
+            self.logger().info(f"Found {len(active_orders)} active orders to cancel")
+
+            # Track cancellation start time
+            start_time = time.time()
+            cancellation_results = []
+
+            # Cancel all orders concurrently
+            cancel_tasks = []
+            for order in active_orders:
+                task = asyncio.create_task(self._execute_order_cancel_and_process_update(order))
+                cancel_tasks.append((order, task))
+
+            # Wait for cancellations with timeout
+            completed_tasks = []
+            timeout_tasks = []
+
+            for order, task in cancel_tasks:
+                try:
+                    # Wait for each cancellation with remaining timeout
+                    remaining_timeout = timeout_seconds - (time.time() - start_time)
+                    if remaining_timeout <= 0:
+                        timeout_tasks.append((order, task))
+                        continue
+
+                    success = await asyncio.wait_for(task, timeout=remaining_timeout)
+                    completed_tasks.append((order, success))
+
+                    result = CancellationResult(order_id=order.client_order_id, success=success)
+                    cancellation_results.append(result)
+
+                except asyncio.TimeoutError:
+                    timeout_tasks.append((order, task))
+                    self.logger().warning(f"⏰ Cancellation timeout for order {order.client_order_id}")
+
+                except Exception as e:
+                    self.logger().error(f"❌ Error cancelling order {order.client_order_id}: {e}")
+                    result = CancellationResult(order_id=order.client_order_id, success=False)
+                    cancellation_results.append(result)
+
+            # Handle timeout tasks
+            for order, task in timeout_tasks:
+                task.cancel()
+                result = CancellationResult(order_id=order.client_order_id, success=False)
+                cancellation_results.append(result)
+
+            # Summary
+            successful_cancellations = sum(1 for r in cancellation_results if r.success)
+            total_time = time.time() - start_time
+
+            self.logger().info(
+                f"📊 Cancellation complete: {successful_cancellations}/{len(active_orders)} "
+                f"successful in {total_time:.2f}s"
+            )
+
+            return cancellation_results
+
+        except Exception as e:
+            self.logger().error(f"Error in cancel_all: {e}")
+            return []
+
+    def batch_order_cancel(self, orders_to_cancel: List) -> None:
+        """
+        Batch cancel orders for improved efficiency.
+        Initiates cancellation of multiple orders simultaneously.
+
+        Args:
+            orders_to_cancel: List of LimitOrder objects to cancel
+        """
+        try:
+            if not orders_to_cancel:
+                return
+
+            self.logger().info(f"📦 Batch cancelling {len(orders_to_cancel)} orders...")
+
+            # Convert to async cancellation tasks
+            for order in orders_to_cancel:
+                # Find the tracked order
+                tracked_order = self._order_tracker.fetch_order(order.client_order_id)
+                if tracked_order:
+                    # Use our async cancellation system
+                    asyncio.create_task(self._execute_order_cancel_and_process_update(tracked_order))
+                else:
+                    self.logger().warning(f"Order {order.client_order_id} not found in tracker")
+
+            self.logger().info(f"✅ Initiated batch cancellation of {len(orders_to_cancel)} orders")
+
+        except Exception as e:
+            self.logger().error(f"Error in batch_order_cancel: {e}")
+
+    async def get_all_pairs_prices(self) -> List[Dict[str, str]]:
+        """
+        Get current prices for all trading pairs.
+        Used for price discovery and arbitrage opportunities.
+
+        Returns:
+            List of price dictionaries with format:
+            [{"symbol": "STT-USDC", "price": "1.25"}, ...]
+        """
+        try:
+            self.logger().debug("Fetching all pairs prices...")
+
+            pairs_prices = []
+
+            # Get prices for all configured trading pairs
+            for trading_pair in self._trading_pairs:
+                try:
+                    # Use our enhanced quote price method
+                    # Get a small amount to get current market price
+                    quote_amount = Decimal("1.0")
+
+                    # Get both buy and sell prices for spread information
+                    buy_price = await self.get_quote_price(trading_pair, is_buy=True, amount=quote_amount)
+                    sell_price = await self.get_quote_price(trading_pair, is_buy=False, amount=quote_amount)
+
+                    # Use mid-price as the representative price
+                    if buy_price > 0 and sell_price > 0:
+                        mid_price = (buy_price + sell_price) / 2
+                    elif buy_price > 0:
+                        mid_price = buy_price
+                    elif sell_price > 0:
+                        mid_price = sell_price
+                    else:
+                        # Fallback to order book data if available
+                        mid_price = await self._get_last_traded_price(trading_pair)
+
+                    if mid_price > 0:
+                        pairs_prices.append(
+                            {
+                                "symbol": trading_pair,
+                                "price": str(mid_price),
+                                "buy_price": str(buy_price) if buy_price > 0 else None,
+                                "sell_price": str(sell_price) if sell_price > 0 else None,
+                                "timestamp": str(self.current_timestamp),
+                            }
+                        )
+
+                    self.logger().debug(f"Price for {trading_pair}: {mid_price}")
+
+                except Exception as pair_error:
+                    self.logger().warning(f"Failed to get price for {trading_pair}: {pair_error}")
+                    # Continue with other pairs
+                    continue
+
+            self.logger().info(f"📈 Retrieved prices for {len(pairs_prices)}/{len(self._trading_pairs)} trading pairs")
+            return pairs_prices
+
+        except Exception as e:
+            self.logger().error(f"Error getting all pairs prices: {e}")
+            return []
 
     async def build_exchange_market_info(self) -> Dict[str, Any]:
         """
@@ -1793,6 +2081,9 @@ class StandardExchange(ExchangePyBase):
     ):
         """
         Check if wallet has sufficient token balance before placing orders.
+        Uses already-fetched balance data from _update_balances() to avoid redundant Web3 calls.
+
+        Special handling for native token sales: ensures we have enough for BOTH the sale amount AND gas fees.
 
         Args:
             base_address: Base token address
@@ -1802,76 +2093,77 @@ class StandardExchange(ExchangePyBase):
             is_buy: Whether this is a buy order
         """
         try:
-            from web3 import Web3
-
-            # Create Web3 instance
-            rpc_url = CONSTANTS.DOMAIN_CONFIG[self._domain]["rpc_url"]
-            w3 = Web3(Web3.HTTPProvider(rpc_url))
-
-            if not w3.is_connected():
-                self.logger().warning("Failed to connect to RPC for balance check")
-                return
-
-            # Standard ERC-20 balance ABI
-            erc20_abi = [
-                {
-                    "constant": True,
-                    "inputs": [{"name": "_owner", "type": "address"}],
-                    "name": "balanceOf",
-                    "outputs": [{"name": "balance", "type": "uint256"}],
-                    "type": "function",
-                }
-            ]
-
-            wallet_address = w3.to_checksum_address(self._wallet_address)
-
             if is_buy:
                 # For buy orders, need sufficient quote token (USDC) balance
-                token_address = quote_address
-                quote_decimals = utils.get_token_decimals(utils.convert_address_to_symbol(quote_address, self._domain))
-                required_amount = int((amount * price) * (10**quote_decimals))
                 token_symbol = utils.convert_address_to_symbol(quote_address, self._domain)
+                quote_decimals = utils.get_token_decimals(token_symbol)
+                required_amount_decimal = amount * price
+
+                # Standard balance check for quote token (no gas fee consideration)
+                current_balance_decimal = self.get_balance(token_symbol)
+
             else:
-                # For sell orders, need sufficient base token (SOMI) balance
-                token_address = base_address
-                base_decimals = utils.get_token_decimals(utils.convert_address_to_symbol(base_address, self._domain))
-                required_amount = int(amount * (10**base_decimals))
+                # For sell orders, need sufficient base token balance
                 token_symbol = utils.convert_address_to_symbol(base_address, self._domain)
+                base_decimals = utils.get_token_decimals(token_symbol)
+                required_amount_decimal = amount
 
-            # Check balance for native tokens (SOMI, ETH, SOMNIA, STT)
-            if token_symbol.upper() in CONSTANTS.NATIVE_TOKEN_LIST:
-                current_balance = w3.eth.get_balance(wallet_address)
-                self.logger().info(
-                    f"Native token balance check for {token_symbol}: current={current_balance}, required={required_amount}"
-                )
-            else:
-                # Check ERC-20 token balance
-                contract = w3.eth.contract(address=w3.to_checksum_address(token_address), abi=erc20_abi)
-                current_balance = contract.functions.balanceOf(wallet_address).call()
-                self.logger().info(
-                    f"Token balance check for {token_symbol}: current={current_balance}, required={required_amount}"
-                )
+                # Get current balance from already-fetched data (avoids redundant Web3 call)
+                current_balance_decimal = self.get_balance(token_symbol)
 
-            if current_balance < required_amount:
-                readable_balance = current_balance / (
-                    10 ** (utils.get_token_decimals(token_symbol) if token_symbol != "ETH" else 18)
-                )
-                readable_required = required_amount / (
-                    10 ** (utils.get_token_decimals(token_symbol) if token_symbol != "ETH" else 18)
-                )
-                raise ValueError(
-                    f"Insufficient {token_symbol} balance. Have: {readable_balance:.6f}, Need: {readable_required:.6f}"
-                )
+                # 🚨 CRITICAL: Check if we're selling native token (SOMI) - need to reserve gas fees!
+                is_native_sell = token_symbol.upper() in CONSTANTS.NATIVE_TOKEN_LIST
+
+                if is_native_sell:
+                    # For native token sales, we need BOTH the sell amount AND gas for the transaction
+                    # Use cached gas price to avoid redundant Web3 calls
+                    gas_price = await self._get_cached_gas_price()
+
+                    # Estimate gas for limitSellETH transaction (conservative)
+                    estimated_gas = 250000  # Higher estimate for native token sales
+                    estimated_gas_cost_wei = gas_price * estimated_gas * self._gas_buffer_multiplier
+
+                    # Convert to Decimal using proper scaling
+                    estimated_gas_cost_decimal = Decimal(estimated_gas_cost_wei) / Decimal(10**18)
+
+                    # Total required = sell amount + gas fees
+                    required_amount_decimal = amount + estimated_gas_cost_decimal
+
+                    self.logger().warning(
+                        f"🔥 NATIVE TOKEN SALE: {token_symbol} | "
+                        f"Sell: {amount:.6f} + Gas: {estimated_gas_cost_decimal:.6f} = "
+                        f"Total needed: {required_amount_decimal:.6f} | "
+                        f"Available: {current_balance_decimal:.6f}"
+                    )
+
+            self.logger().info(
+                f"Balance check for {token_symbol}: current={current_balance_decimal:.6f}, required={required_amount_decimal:.6f}"
+            )
+
+            if current_balance_decimal < required_amount_decimal:
+                if not is_buy and token_symbol.upper() in CONSTANTS.NATIVE_TOKEN_LIST:
+                    # Special error message for native token sales
+                    gas_needed = required_amount_decimal - amount
+                    raise ValueError(
+                        f"Insufficient {token_symbol} balance for native token sale. "
+                        f"Have: {current_balance_decimal:.6f}, "
+                        f"Need: {amount:.6f} (sell) + {gas_needed:.6f} (gas) = {required_amount_decimal:.6f} total"
+                    )
+                else:
+                    raise ValueError(
+                        f"Insufficient {token_symbol} balance. Have: {current_balance_decimal:.6f}, Need: {required_amount_decimal:.6f}"
+                    )
             else:
-                readable_balance = current_balance / (
-                    10 ** (utils.get_token_decimals(token_symbol) if token_symbol != "ETH" else 18)
-                )
-                readable_required = required_amount / (
-                    10 ** (utils.get_token_decimals(token_symbol) if token_symbol != "ETH" else 18)
-                )
-                self.logger().info(
-                    f"Sufficient {token_symbol} balance: {readable_balance:.6f} >= {readable_required:.6f}"
-                )
+                if not is_buy and token_symbol.upper() in CONSTANTS.NATIVE_TOKEN_LIST:
+                    gas_reserved = required_amount_decimal - amount
+                    self.logger().info(
+                        f"✅ Sufficient {token_symbol} balance for native sale: {current_balance_decimal:.6f} "
+                        f"(sell: {amount:.6f} + gas reserve: {gas_reserved:.6f})"
+                    )
+                else:
+                    self.logger().info(
+                        f"✅ Sufficient {token_symbol} balance: {current_balance_decimal:.6f} >= {required_amount_decimal:.6f}"
+                    )
 
         except Exception as e:
             self.logger().error(f"Error checking token balance: {e}")
@@ -2107,6 +2399,33 @@ class StandardExchange(ExchangePyBase):
         This ensures proper order status management with async transaction confirmation.
         """
         try:
+            # 💰 CRITICAL: Check gas balance before attempting order placement
+            if not await self._ensure_sufficient_gas_before_transaction("place_order"):
+                # Mark order as failed due to insufficient gas
+                order_update = OrderUpdate(
+                    client_order_id=order.client_order_id,
+                    trading_pair=order.trading_pair,
+                    update_timestamp=self.current_timestamp,
+                    new_state=OrderState.FAILED,
+                    misc_updates={
+                        "error_message": "Insufficient gas balance for transaction",
+                        "error_type": "INSUFFICIENT_GAS",
+                        "gas_check_timestamp": time.time(),
+                    },
+                )
+                self._order_tracker.process_order_update(order_update)
+
+                # Also emit error event
+                self.trigger_event(
+                    MarketEvent.OrderFailure,
+                    {
+                        "order_id": order.client_order_id,
+                        "error": "Insufficient gas balance - please deposit SOMI for gas fees",
+                    },
+                )
+
+                raise Exception("Insufficient gas balance for order placement")
+
             # Call the standard _place_order method
             exchange_order_id, update_timestamp = await self._place_order(
                 order_id=order.client_order_id,
@@ -2549,8 +2868,8 @@ class StandardExchange(ExchangePyBase):
                 self.logger().warning(f"Could not estimate gas: {e}, using default 3M")
                 gas_limit = 3000000
 
-            # Get current gas price
-            gas_price = w3.eth.gas_price
+            # Get current gas price using cache to avoid redundant Web3 calls
+            gas_price = await self._get_cached_gas_price()
 
             # Build transaction
             transaction = {
@@ -2717,6 +3036,38 @@ class StandardExchange(ExchangePyBase):
         cancellation_start_time = time.time()
 
         try:
+            # � Update balances to ensure we have fresh data before gas check
+            await self._update_balances()
+
+            # �💰 CRITICAL: Check gas balance before attempting cancellation
+            if not await self._ensure_sufficient_gas_before_transaction("cancel_order"):
+                self.logger().error(
+                    f"❌ Cannot cancel order {order_id} - insufficient gas balance. "
+                    f"Order may remain active on blockchain until gas is available."
+                )
+
+                # Record failed cancellation attempt
+                self._record_cancellation_attempt(order_id, "failed_insufficient_gas")
+
+                # Still update order to failed state so it's removed from active orders
+                # but with a clear message about what happened
+                order_update = OrderUpdate(
+                    client_order_id=order_id,
+                    trading_pair=tracked_order.trading_pair,
+                    update_timestamp=self.current_timestamp,
+                    new_state=OrderState.FAILED,
+                    misc_updates={
+                        "error_message": "Cannot cancel - insufficient gas balance. Order may still be active on blockchain.",
+                        "error_type": "INSUFFICIENT_GAS_FOR_CANCEL",
+                        "cancellation_blocked": True,
+                        "gas_check_timestamp": time.time(),
+                    },
+                )
+                self._order_tracker.process_order_update(order_update)
+
+                # Return a special ID to indicate gas issue
+                return f"GAS_INSUFFICIENT_{order_id}"
+
             # Phase 4 Enhancement: Record cancellation attempt
             self._record_cancellation_attempt(order_id, "started")
 
