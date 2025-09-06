@@ -2229,12 +2229,17 @@ class StandardExchange(ExchangePyBase):
 
             if order_type == OrderType.MARKET:
                 # For market orders, we'll place a limit order at a price that should execute immediately
+                # Use configurable slippage - default 0.3% for arbitrage strategies
+                market_slippage = Decimal("0.003")  # 0.3% default - much better for arbitrage
+
                 if is_buy:
                     # Buy at a higher price to ensure execution
-                    execution_price = price * Decimal("1.01")  # 1% above current price
+                    execution_price = price * (Decimal("1") + market_slippage)
+                    self.logger().info(f"🔥 MARKET BUY: {amount} {base} at {execution_price} ({market_slippage * 100}% slippage)")
                 else:
                     # Sell at a lower price to ensure execution
-                    execution_price = price * Decimal("0.99")  # 1% below current price
+                    execution_price = price * (Decimal("1") - market_slippage)
+                    self.logger().info(f"🔥 MARKET SELL: {amount} {base} at {execution_price} ({market_slippage * 100}% slippage)")
             else:
                 execution_price = price
 
