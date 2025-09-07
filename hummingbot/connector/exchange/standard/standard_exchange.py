@@ -626,8 +626,21 @@ class StandardExchange(ExchangePyBase):
             self.logger().warning(f"🕐 Transaction {tx_hash[:10]}... timed out after 10 minutes")
 
             if client_order_id:
-                # Mark order as failed due to timeout
-                await self._handle_transaction_timeout(client_order_id, tx_hash)
+                # Check if order has a known status before marking as failed
+                if hasattr(self, "_order_tracker") and client_order_id in self._order_tracker.active_orders:
+                    order = self._order_tracker.active_orders[client_order_id]
+                    current_state = order.current_state
+
+                    # Don't mark as failed if order is already in a final state
+                    if current_state in [OrderState.FILLED, OrderState.CANCELED, OrderState.FAILED]:
+                        self.logger().info(f"🔄 Order {client_order_id} already in final state {current_state}, skipping timeout")
+                    else:
+                        # Only mark as failed if truly unknown or still pending
+                        self.logger().warning(f"⏰ Order {client_order_id} still in state {current_state}, marking as failed due to transaction timeout")
+                        await self._handle_transaction_timeout(client_order_id, tx_hash)
+                else:
+                    # Order not in tracker, safe to mark as failed
+                    await self._handle_transaction_timeout(client_order_id, tx_hash)
 
             # Remove from tracking
             self._pending_tx_hashes.pop(tx_hash, None)
@@ -2436,17 +2449,17 @@ class StandardExchange(ExchangePyBase):
                         # Other errors should be propagated
                         raise
 
-            # Handle return value - could be tuple (tx_hash, timestamp) or just tx_hash
+            # Handle return value - could be tuple (tx_hash, timestamp) or just tx_hash/combined_id
             if isinstance(result, tuple) and len(result) == 2:
-                tx_hash, _ = result  # Extract just the tx_hash
+                exchange_order_id, _ = result  # Extract the exchange_order_id (could be tx_hash or combined)
             else:
-                tx_hash = result  # Already just tx_hash
+                exchange_order_id = result  # Already the proper exchange_order_id
 
-            self.logger().info(f"Order placed successfully: {order_id} -> {tx_hash}")
+            self.logger().info(f"Order placed successfully: {order_id} -> {exchange_order_id}")
 
-            # Return transaction hash as exchange order ID (following standard connector pattern)
+            # Return the full exchange_order_id (could be tx_hash alone or "tx_hash:blockchain_order_id")
             timestamp = time.time()
-            return tx_hash, timestamp
+            return exchange_order_id, timestamp
 
         except Exception as e:
             # Simple error handling following ORDER_FAILURE_HANDLING.md pattern:
@@ -4252,16 +4265,41 @@ class StandardExchange(ExchangePyBase):
                             break
 
             if not order_status:
-                # Order not found - might be too new or still being indexed
-                # Don't immediately mark as failed, give it more time
+                # Order not found - check execution status first to handle immediate executions
+                execution_status = self._order_execution_status.get(tracked_order.client_order_id, "unknown")
+
+                # Handle immediate executions that were detected during placement
+                if execution_status == "matched":
+                    self.logger().info(f"Order {tracked_order.client_order_id} was immediately executed - marking as FILLED")
+                    return OrderUpdate(
+                        trading_pair=tracked_order.trading_pair,
+                        update_timestamp=time.time(),
+                        new_state=OrderState.FILLED,
+                        client_order_id=tracked_order.client_order_id,
+                        exchange_order_id=tracked_order.exchange_order_id,
+                    )
+
+                # Handle confirmed failures
+                if execution_status == "failed":
+                    self.logger().warning(f"Order {tracked_order.client_order_id} failed during placement - marking as FAILED")
+                    return OrderUpdate(
+                        trading_pair=tracked_order.trading_pair,
+                        update_timestamp=time.time(),
+                        new_state=OrderState.FAILED,
+                        client_order_id=tracked_order.client_order_id,
+                        exchange_order_id=tracked_order.exchange_order_id,
+                    )
+
+                # For unknown status, use time-based timeout as fallback
                 creation_time = tracked_order.creation_timestamp
                 current_time = time.time()
                 time_since_creation = current_time - creation_time
 
-                # Only mark as failed if order is older than 5 minutes and still not found
-                if time_since_creation > 300:  # 5 minutes
+                # Only mark as failed if order is older than 1 hour and still not found
+                # This prevents immediate executions from being marked as failed due to indexing delays
+                if time_since_creation > 3600:  # 1 hour
                     self.logger().warning(
-                        f"Order {tracked_order.client_order_id} not found after 5 minutes, marking as failed"
+                        f"Order {tracked_order.client_order_id} not found after 1 hour, marking as failed"
                     )
                     return OrderUpdate(
                         trading_pair=tracked_order.trading_pair,
@@ -4273,7 +4311,7 @@ class StandardExchange(ExchangePyBase):
                 else:
                     # Order is still new, assume it's OPEN and wait for indexing
                     self.logger().debug(
-                        f"Order {tracked_order.client_order_id} not found yet (age: {time_since_creation:.1f}s), assuming OPEN"
+                        f"Order {tracked_order.client_order_id} not found yet (age: {time_since_creation:.1f}s), assuming OPEN - will timeout after 24h"
                     )
                     return OrderUpdate(
                         trading_pair=tracked_order.trading_pair,
