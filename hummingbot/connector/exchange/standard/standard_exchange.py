@@ -206,9 +206,6 @@ class StandardExchange(ExchangePyBase):
         self._last_nonce = 0
         self._transaction_lock = asyncio.Lock()
 
-        # Store order ID mapping: client_order_id -> (blockchain_order_id, base_address, quote_address, is_bid)
-        self._order_id_map = {}
-
         self.logger().info("DEBUG: Nonce management initialized")
 
         # Initialize authentication
@@ -238,6 +235,7 @@ class StandardExchange(ExchangePyBase):
         self._pending_tx_hashes: Dict[str, Dict] = {}  # tx_hash -> {timestamp, order_type, client_order_id}
         self._tx_order_mapping: Dict[str, str] = {}  # tx_hash -> client_order_id
         self._order_tx_mapping: Dict[str, str] = {}  # client_order_id -> tx_hash
+        self._order_execution_status: Dict[str, str] = {}  # client_order_id -> 'placed'|'matched'|'failed'
         self._tx_monitor_task: Optional[asyncio.Task] = None  # Background task for transaction monitoring
 
         self.logger().info("DEBUG: Transaction tracking infrastructure initialized")
@@ -387,7 +385,7 @@ class StandardExchange(ExchangePyBase):
             # Use cached gas price to avoid redundant Web3 calls
             gas_price = await self._get_cached_gas_price()
 
-            estimated_gas_per_tx = 200000  # Conservative estimate
+            estimated_gas_per_tx = 3000000  # Conservative estimate
             gas_needed_for_10_tx = gas_price * estimated_gas_per_tx * 10 * self._gas_buffer_multiplier
 
             # Convert to Decimal using proper scaling
@@ -541,6 +539,7 @@ class StandardExchange(ExchangePyBase):
                 self._tx_order_mapping.pop(tx_hash, None)
                 if client_order_id:
                     self._order_tx_mapping.pop(client_order_id, None)
+                    self._order_execution_status.pop(client_order_id, None)
 
         except Exception as e:
             if "transaction not found" not in str(e).lower():
@@ -572,6 +571,7 @@ class StandardExchange(ExchangePyBase):
             self._tx_order_mapping.pop(tx_hash, None)
             if client_order_id:
                 self._order_tx_mapping.pop(client_order_id, None)
+                self._order_execution_status.pop(client_order_id, None)
 
     async def _handle_transaction_timeout(self, client_order_id: str, tx_hash: str):
         """Handle transaction timeout."""
@@ -611,14 +611,6 @@ class StandardExchange(ExchangePyBase):
                 f"Block: {tx_details.get('block_number', 'unknown')} | "
                 f"Fee: {tx_details.get('transaction_fee', 'unknown')} ETH"
             )
-
-            # Extract order ID if available
-            order_id = await self._extract_order_id_from_transaction_receipt(tx_hash)
-            if order_id and order_id != "IMMEDIATELY_FILLED":
-                self.logger().info(f"📋 Blockchain order ID extracted: {order_id} for {client_order_id}")
-                # Update order mapping with extracted ID
-                if client_order_id in self._order_id_map:
-                    self._order_id_map[client_order_id]["blockchain_order_id"] = order_id
 
             # Record transaction metrics
             self._record_transaction_metrics(client_order_id, tx_hash, "success", tx_details)
@@ -2120,7 +2112,7 @@ class StandardExchange(ExchangePyBase):
                     gas_price = await self._get_cached_gas_price()
 
                     # Estimate gas for limitSellETH transaction (conservative)
-                    estimated_gas = 250000  # Higher estimate for native token sales
+                    estimated_gas = 50000000  # Higher estimate for native token sales
                     estimated_gas_cost_wei = gas_price * estimated_gas * self._gas_buffer_multiplier
 
                     # Convert to Decimal using proper scaling
@@ -2256,140 +2248,57 @@ class StandardExchange(ExchangePyBase):
                 self.logger().info(f"  - execution_price: {execution_price}")
 
                 # ===== APPROACH SELECTION =====
-                # CRITICAL NOTE: StandardWeb3 client is INCOMPLETE for limitSell/limitBuy functions!
-                # DO NOT revert to StandardWeb3 approach without implementing the missing functions first.
-                # The StandardWeb3 library does not have proper limitSell/limitBuy function implementations,
-                # so we MUST use direct contract calls until StandardWeb3 is complete.
+                # NEW: Use StandardWeb3 0.0.10 with fallback to direct contract method
+                # This provides order IDs when StandardWeb3 works, with reliable fallback
 
-                # APPROACH 1: StandardWeb3 Client (COMMENTED OUT - INCOMPLETE IMPLEMENTATION)
-                # try:
-                #     if hasattr(self, '_standardweb3_client') and self._standardweb3_client:
-                #         self.logger().info("Using StandardWeb3 client for order placement...")
-                #         await self._place_order_standardweb3(
-                #             base_address=base_address,
-                #             quote_address=quote_address,
-                #             amount=amount,
-                #             execution_price=execution_price,
-                #             is_buy=is_buy,
-                #             base_decimals=base_decimals,
-                #             quote_decimals=quote_decimals,
-                #             current_nonce=current_nonce
-                #         )
-                #         # StandardWeb3 client returns order hash differently
-                #         tx_hash = f"standardweb3_order_{current_nonce}"
-                #     else:
-                #         raise Exception("StandardWeb3 client not available, falling back to direct contract")
-                # except Exception as e:
-                #     self.logger().warning(f"StandardWeb3 client failed ({e}), using direct contract call")
-                #     # Fall back to direct contract call approach
+                self.logger().info("🔄 Trying StandardWeb3 0.0.10 for order placement...")
 
-                # APPROACH 2: DIRECT ON-CHAIN CONTRACT CALL (CURRENT IMPLEMENTATION)
-                # This is the working approach since StandardWeb3 limitSell/limitBuy functions are incomplete
-                result = await self._place_order_direct_contract(
-                    base_address=base_address,
-                    quote_address=quote_address,
-                    amount=amount,
-                    execution_price=execution_price,
-                    is_buy=is_buy,
-                    base_decimals=base_decimals,
-                    quote_decimals=quote_decimals,
-                    current_nonce=current_nonce,
-                )
-
-                # Handle return value - could be tuple (tx_hash, timestamp) or just tx_hash
-                if isinstance(result, tuple) and len(result) == 2:
-                    tx_hash, _ = result  # Extract just the tx_hash
-                else:
-                    tx_hash = result  # Already just tx_hash
-
-            # Store order ID mapping for cancellation
-            # Handle both old format (just tx_hash string) and new format (dict with tx_hash and order_id)
-            if isinstance(tx_hash, dict):
-                # New format: extract both transaction hash and order ID
-                transaction_hash = tx_hash.get("tx_hash")
-                actual_order_id = tx_hash.get("order_id")
-
-                self._order_id_map[order_id] = {
-                    # Use order ID if available, fallback to tx hash
-                    "blockchain_order_id": actual_order_id if actual_order_id else transaction_hash,
-                    "transaction_hash": transaction_hash,  # Keep tx hash for reference
-                    "base_address": base_address,
-                    "quote_address": quote_address,
-                    "is_bid": is_buy,
-                }
-
-                self.logger().info(
-                    f"Order placed successfully: {order_id} -> {transaction_hash} (order_id: {actual_order_id}, max_matches: {MAX_ORDERS_TO_MATCH})"
-                )
-                tx_hash_for_return = transaction_hash
-            else:
-                # Old format: just transaction hash (fallback)
-                # Extract the actual order ID from the transaction receipt
-                self.logger().info(f"Extracting order ID from transaction receipt: {tx_hash}")
-                actual_order_id = await self._extract_order_id_from_transaction_receipt(tx_hash)
-
-                if actual_order_id == "IMMEDIATELY_FILLED":
-                    self.logger().info(f"Order {order_id} was immediately filled - no order book entry created")
-                    # For immediately filled orders, we don't store any blockchain order ID since there's nothing to cancel
-                    self._order_id_map[order_id] = {
-                        "blockchain_order_id": None,  # No order ID since order was immediately filled
-                        "transaction_hash": tx_hash,
-                        "base_address": base_address,
-                        "quote_address": quote_address,
-                        "is_bid": is_buy,
-                        "immediately_filled": True,  # Flag to indicate immediate fill
-                    }
-                elif actual_order_id is not None:
-                    self.logger().info(f"Successfully extracted order ID: {actual_order_id} from tx: {tx_hash}")
-                    self._order_id_map[order_id] = {
-                        "blockchain_order_id": actual_order_id,  # Use extracted integer order ID
-                        "transaction_hash": tx_hash,
-                        "base_address": base_address,
-                        "quote_address": quote_address,
-                        "is_bid": is_buy,
-                    }
-                else:
-                    self.logger().warning(
-                        f"Could not extract order ID from tx receipt: {tx_hash}, using tx hash as fallback"
+                try:
+                    # Create InFlightOrder for StandardWeb3 method
+                    temp_order = InFlightOrder(
+                        client_order_id=order_id,
+                        trading_pair=trading_pair,
+                        order_type=order_type,
+                        trade_type=trade_type,
+                        amount=amount,
+                        price=execution_price,
+                        creation_timestamp=time.time()
                     )
-                    self._order_id_map[order_id] = {
-                        "blockchain_order_id": tx_hash,  # Fallback to transaction hash
-                        "transaction_hash": tx_hash,
-                        "base_address": base_address,
-                        "quote_address": quote_address,
-                        "is_bid": is_buy,
-                    }
 
-                self.logger().info(
-                    f"Order placed successfully: {order_id} -> {tx_hash} (max_matches: {MAX_ORDERS_TO_MATCH})"
-                )
-                tx_hash_for_return = tx_hash
+                    # Place order via StandardWeb3 and get both tx_hash and order_id
+                    tx_hash, blockchain_order_id = await self._place_order_with_standardweb3(temp_order)
 
-            # Check transaction status if tx_hash contains receipt information (legacy support)
-            if isinstance(tx_hash_for_return, dict) and "status" in tx_hash_for_return:
-                tx_status = tx_hash_for_return.get("status", 0)
-                tx_hash_value = tx_hash_for_return.get("transactionHash", tx_hash_for_return)
+                    # Store the blockchain order ID for cancellation (this is the key improvement!)
+                    self.logger().info(f"📝 Storing blockchain order ID {blockchain_order_id} for order {order_id}")
 
-                if tx_status == 0:
-                    # Transaction failed on blockchain
-                    self.logger().error(f"Transaction failed on blockchain for order {order_id}: {tx_hash_value}")
-                    self.logger().error(f"Transaction receipt: {tx_hash_for_return}")
-                    raise ValueError(f"Blockchain transaction failed with status 0 for order {order_id}")
-                else:
-                    # Transaction succeeded
-                    tx_hash_for_return = tx_hash_value  # Use just the hash for return value
+                    # We'll store this in the tracked order's exchange_order_id as a combined identifier
+                    # Format: "tx_hash:order_id" so we can extract both later
+                    result = f"{tx_hash}:{blockchain_order_id}"
 
-            # Update the InFlightOrder.exchange_order_id field for proper cancellation
-            # This is critical - without this, cancel orders will fall back to local cancellation only
-            if order_id in self._order_tracker.active_orders:
-                tracked_order = self._order_tracker.active_orders[order_id]
-                tracked_order.update_exchange_order_id(tx_hash_for_return)
-                self.logger().info("Updated exchange_order_id for {order_id}: {tx_hash_for_return}")
+                except Exception as e:
+                    if "parsing bug" in str(e) or "base" in str(e):
+                        self.logger().warning(f"🔄 StandardWeb3 failed ({e}), falling back to direct contract method...")
 
-            # Return transaction hash as exchange order ID
+                        # Fallback to direct contract method
+                        result, _ = await self._place_order_direct_contract(
+                            order_id, trading_pair, amount, trade_type, order_type, execution_price, is_buy,
+                            base, base_address, quote, quote_address, base_decimals, quote_decimals
+                        )
+                    else:
+                        # Other errors should be propagated
+                        raise
+
+            # Handle return value - could be tuple (tx_hash, timestamp) or just tx_hash
+            if isinstance(result, tuple) and len(result) == 2:
+                tx_hash, _ = result  # Extract just the tx_hash
+            else:
+                tx_hash = result  # Already just tx_hash
+
+            self.logger().info(f"Order placed successfully: {order_id} -> {tx_hash}")
+
+            # Return transaction hash as exchange order ID (following standard connector pattern)
             timestamp = time.time()
-
-            return tx_hash_for_return, timestamp
+            return tx_hash, timestamp
 
         except Exception as e:
             # Simple error handling following ORDER_FAILURE_HANDLING.md pattern:
@@ -3026,288 +2935,396 @@ class StandardExchange(ExchangePyBase):
             self.logger().warning(f"Could not get receipt for transaction: {tx_hash_hex}")
             raise Exception(f"Transaction confirmation timeout: {tx_hash_hex}")
 
-    async def _place_cancel(self, order_id: str, tracked_order: InFlightOrder) -> str:
+    async def _place_order_with_standardweb3(
+        self,
+        order: InFlightOrder
+    ) -> tuple[str, int]:
         """
-        Cancel an order on the exchange using StandardWeb3 cancel_orders method with on-chain fallback.
-        Enhanced with Phase 4 error handling and timeout management.
+        Place an order using StandardWeb3 library and return both transaction hash and order ID.
+
+        Args:
+            order: InFlightOrder instance
+
+        Returns:
+            Tuple of (transaction_hash, blockchain_order_id)
+        """
+        try:
+            from standardweb3 import StandardClient
+
+            from hummingbot.connector.exchange.standard.standard_constants import DEFAULT_DOMAIN, DOMAIN_CONFIG
+
+            # Get configuration
+            domain_config = DOMAIN_CONFIG[DEFAULT_DOMAIN]
+            rpc_url = domain_config['rpc_url']
+            exchange_address = domain_config['standard_exchange_address']
+
+            # Initialize StandardClient
+            client = StandardClient(
+                private_key=self._private_key,
+                http_rpc_url=rpc_url,
+                matching_engine_address=exchange_address,
+                networkName=None  # Use None as it works
+            )
+
+            # Get token addresses
+            base_symbol, quote_symbol = order.trading_pair.split('-')
+            base_address = utils.convert_symbol_to_address(base_symbol, self._domain)
+            quote_address = utils.convert_symbol_to_address(quote_symbol, self._domain)
+
+            # Get token decimals for proper conversion
+            base_decimals = utils.get_token_decimals(base_symbol)
+            quote_decimals = utils.get_token_decimals(quote_symbol)
+
+            # Convert amounts to integers with proper decimals
+            price_decimal = order.price
+            amount_decimal = order.amount
+
+            # CRITICAL: Use correct price conversion - contract uses DENOM (10^8) for price precision
+            # Price should be quote_token_amount / base_token_amount * DENOM
+            price_wei = int(price_decimal * Decimal(str(CONSTANTS.DENOM)))
+
+            # Determine recipient (wallet address)
+            recipient = client.account.address
+
+            self.logger().info(f"🔄 Placing order via StandardWeb3:")
+            self.logger().info(f"   - Pair: {order.trading_pair}")
+            self.logger().info(f"   - Type: {order.trade_type}")
+            self.logger().info(f"   - Price: {price_decimal} -> {price_wei} (DENOM: {CONSTANTS.DENOM})")
+            self.logger().info(f"   - Amount: {amount_decimal}")
+            self.logger().info(f"   - Base: {base_symbol} ({base_decimals} decimals) -> {base_address}")
+            self.logger().info(f"   - Quote: {quote_symbol} ({quote_decimals} decimals) -> {quote_address}")
+            self.logger().info(f"   - Recipient: {recipient}")
+
+            # Place order based on trade type and token type
+            base_symbol, quote_symbol = order.trading_pair.split('-')
+
+            # Check if we're dealing with native token (SOMI)
+            is_base_native = base_symbol.upper() in CONSTANTS.NATIVE_TOKEN_LIST
+            is_quote_native = quote_symbol.upper() in CONSTANTS.NATIVE_TOKEN_LIST
+
+            self.logger().info(f"   - is_base_native: {is_base_native}")
+            self.logger().info(f"   - is_quote_native: {is_quote_native}")
+
+            # Place order and get response with order ID
+            response = None
+
+            if order.trade_type == TradeType.BUY:
+                if is_quote_native:
+                    # Buying base token with native token (SOMI) - use limit_buy_eth
+                    # eth_amount = amount * price (how much SOMI to spend)
+                    eth_amount_wei = int(amount_decimal * price_decimal * Decimal('10') ** 18)  # Native token is always 18 decimals
+
+                    self.logger().info(f"   - ETH amount: {eth_amount_wei} wei (buying with SOMI)")
+
+                    response = await client.limit_buy_eth(
+                        base=base_address,
+                        price=price_wei,
+                        is_maker=True,
+                        n=20,
+                        recipient=recipient,
+                        eth_amount=eth_amount_wei
+                    )
+                    self.logger().info(f"✅ Used limit_buy_eth successfully")
+                else:
+                    # Regular buy order with ERC20 tokens - use limit_buy
+                    # quote_amount = amount * price (how much quote token to spend)
+                    quote_amount_wei = int(amount_decimal * price_decimal * Decimal('10') ** quote_decimals)
+
+                    self.logger().info(f"   - Quote amount: {quote_amount_wei} wei (ERC20 buy)")
+
+                    response = await client.limit_buy(
+                        base=base_address,
+                        quote=quote_address,
+                        price=price_wei,
+                        quote_amount=quote_amount_wei,
+                        is_maker=True,
+                        n=20,
+                        recipient=recipient
+                    )
+                    self.logger().info(f"✅ Used limit_buy successfully")
+            else:
+                if is_base_native:
+                    # Selling native token (SOMI) for other tokens - use limit_sell_eth
+                    eth_amount_wei = int(amount_decimal * Decimal('10') ** 18)  # Native token is always 18 decimals
+
+                    self.logger().info(f"   - ETH amount: {eth_amount_wei} wei (selling SOMI)")
+
+                    response = await client.limit_sell_eth(
+                        quote=quote_address,
+                        price=price_wei,
+                        is_maker=True,
+                        n=20,
+                        recipient=recipient,
+                        eth_amount=eth_amount_wei
+                    )
+                    self.logger().info(f"✅ Used limit_sell_eth successfully")
+                else:
+                    # Regular sell order with ERC20 tokens - use limit_sell
+                    base_amount_wei = int(amount_decimal * Decimal('10') ** base_decimals)
+
+                    self.logger().info(f"   - Base amount: {base_amount_wei} wei (ERC20 sell)")
+
+                    response = await client.limit_sell(
+                        base=base_address,
+                        quote=quote_address,
+                        price=price_wei,
+                        base_amount=base_amount_wei,
+                        is_maker=True,
+                        n=20,
+                        recipient=recipient
+                    )
+                    self.logger().info(f"✅ Used limit_sell successfully")
+
+            # Extract transaction hash and order ID from response
+            tx_hash = None
+            blockchain_order_id = None
+
+            if isinstance(response, dict):
+                # Extract transaction hash
+                tx_hash = response.get('tx_hash')
+                self.logger().info(f"📝 Transaction hash: {tx_hash}")
+
+                # Debug: Show full response structure
+                self.logger().info(f"📋 Full StandardWeb3 response: {response}")
+
+                # Try to extract order ID from decoded_logs first (StandardWeb3 0.0.11+)
+                if 'decoded_logs' in response and response['decoded_logs']:
+                    self.logger().info(f"🔍 Found {len(response['decoded_logs'])} decoded logs")
+
+                    # Process all logs to understand what happened
+                    order_placed_found = False
+                    order_matched_found = False
+                    trade_events_found = []
+
+                    for i, log_entry in enumerate(response['decoded_logs']):
+                        self.logger().info(f"🔍 Log {i}: {log_entry}")
+                        event_name = log_entry.get('event', '')
+
+                        # 1. Check for OrderPlaced event (limit order that stays on book)
+                        if event_name == 'OrderPlaced' and 'args' in log_entry:
+                            if 'id' in log_entry['args']:
+                                blockchain_order_id = log_entry['args']['id']
+                                self.logger().info(f"🎯 Extracted order ID from OrderPlaced event: {blockchain_order_id}")
+                                order_placed_found = True
+                                break
+
+                        # 2. Check for immediate matching events (order matched immediately)
+                        elif event_name in ['OrderMatched', 'Trade', 'OrderFilled', 'Fill']:
+                            order_matched_found = True
+                            trade_events_found.append(log_entry)
+
+                            # Try to extract order ID from matching event
+                            if 'args' in log_entry:
+                                # Common field names for order ID in matching events
+                                for id_field in ['orderId', 'order_id', 'id', 'takerOrderId', 'makerOrderId']:
+                                    if id_field in log_entry['args']:
+                                        potential_order_id = log_entry['args'][id_field]
+                                        if blockchain_order_id is None:  # Use the first valid ID we find
+                                            blockchain_order_id = potential_order_id
+                                            self.logger().info(f"🎯 Extracted order ID from {event_name} event ({id_field}): {blockchain_order_id}")
+
+                        # 3. Check for market price update events
+                        elif event_name in ['NewMarketPrice', 'PriceUpdate']:
+                            self.logger().info(f"📈 Market price update detected: {log_entry}")
+
+                    # Report what we found and track execution status
+                    if order_placed_found:
+                        self.logger().info(f"✅ Order placed as limit order and stays on book")
+                        self._order_execution_status[order.client_order_id] = 'placed'
+                    elif order_matched_found:
+                        self.logger().info(f"⚡ Order matched immediately - found {len(trade_events_found)} trade events")
+                        self._order_execution_status[order.client_order_id] = 'matched'
+                        if blockchain_order_id:
+                            self.logger().info(f"✅ Successfully extracted order ID from immediate execution")
+                        else:
+                            self.logger().warning(f"⚠️  Could not extract order ID from immediate execution events")
+                    else:
+                        self.logger().info(f"❓ No OrderPlaced or OrderMatched events found")
+                        self._order_execution_status[order.client_order_id] = 'failed'
+
+                else:
+                    self.logger().warning(f"⚠️  No decoded_logs found in response")
+
+                # Fallback: try to get from order_info field (if available)
+                if blockchain_order_id is None and 'order_info' in response and response['order_info']:
+                    order_info = response['order_info']
+                    self.logger().info(f"🔍 Found order_info: {order_info}")
+                    if isinstance(order_info, dict) and 'order_id' in order_info:
+                        blockchain_order_id = order_info['order_id']
+                        self.logger().info(f"🎯 Extracted order ID from order_info: {blockchain_order_id}")
+                    elif isinstance(order_info, dict) and 'id' in order_info:
+                        blockchain_order_id = order_info['id']
+                        self.logger().info(f"🎯 Extracted order ID from order_info.id: {blockchain_order_id}")
+
+                # Final fallback: generate temporary ID for immediate executions without detectable order ID
+                if blockchain_order_id is None and order_matched_found:
+                    # For immediate executions where we can't extract the real order ID,
+                    # generate a deterministic temporary ID based on transaction hash
+                    blockchain_order_id = abs(hash(tx_hash)) % (10**6)  # Use last 6 digits of hash
+                    self.logger().info(f"🎯 Generated temporary order ID for immediate execution: {blockchain_order_id}")
+                    self.logger().warning(f"⚠️  Using temporary order ID - cancellation may not work for this order")
+
+                # Display response structure for debugging
+                if blockchain_order_id is not None:
+                    self.logger().info(f"📋 StandardWeb3 response keys: {list(response.keys())}")
+                else:
+                    self.logger().warning(f"⚠️  Could not find order ID in StandardWeb3 response")
+                    self.logger().warning(f"📋 Response keys: {list(response.keys())}")
+
+            elif hasattr(response, 'hex'):
+                tx_hash = response.hex()
+            else:
+                tx_hash = str(response)
+
+            self.logger().info(f"✅ StandardWeb3 order placed: {tx_hash}")
+
+            # Fallback: extract from transaction receipt if no order ID found in response
+            if blockchain_order_id is None:
+                self.logger().info(f"🔍 Fallback: extracting order ID from transaction receipt")
+                try:
+                    blockchain_order_id = await self._extract_blockchain_order_id_for_cancel(tx_hash)
+                except Exception as e:
+                    self.logger().warning(f"⚠️  Failed to extract order ID from receipt: {e}")
+                    blockchain_order_id = None
+
+            # CRITICAL: Never fail order placement due to missing order ID
+            # For orders that execute immediately, we may not be able to extract the order ID,
+            # but the order was still successfully placed and executed.
+            if blockchain_order_id is None:
+                # Generate a placeholder order ID to prevent the order from failing
+                # This allows the order to be tracked even though cancellation won't work
+                blockchain_order_id = abs(hash(tx_hash)) % (10**6)  # Use hash-based ID
+                self.logger().warning(f"⚠️  Could not extract blockchain order ID from transaction {tx_hash}")
+                self.logger().warning(f"⚠️  Using placeholder order ID: {blockchain_order_id} (cancellation will not work)")
+                self.logger().info(f"📊 This often happens with immediately executed orders - they execute successfully but can't be cancelled")
+
+            self.logger().info(f"🎯 Final blockchain order ID: {blockchain_order_id}")
+
+            return tx_hash, blockchain_order_id
+
+        except Exception as e:
+            self.logger().error(f"❌ Failed to place order via StandardWeb3: {e}", exc_info=True)
+            raise
+
+    async def _place_cancel(self, order_id: str, tracked_order: InFlightOrder) -> bool:
+        """
+        Cancel an order on the exchange - ENHANCED VERSION that handles missing exchange_order_id.
 
         Args:
             order_id: Client order ID
             tracked_order: InFlightOrder instance
 
         Returns:
-            Exchange cancellation ID (transaction hash)
+            True if successfully cancelled, False otherwise
         """
-        cancellation_start_time = time.time()
-
         try:
-            # � Update balances to ensure we have fresh data before gas check
-            await self._update_balances()
+            # Get combined identifier from tracked_order (format: "tx_hash:order_id")
+            combined_id = tracked_order.exchange_order_id
 
-            # �💰 CRITICAL: Check gas balance before attempting cancellation
-            if not await self._ensure_sufficient_gas_before_transaction("cancel_order"):
-                self.logger().error(
-                    f"❌ Cannot cancel order {order_id} - insufficient gas balance. "
-                    f"Order may remain active on blockchain until gas is available."
-                )
+            if combined_id is None:
+                # Handle orders without exchange_order_id - check execution status to determine cause
+                execution_status = self._order_execution_status.get(order_id, "unknown")
 
-                # Record failed cancellation attempt
-                self._record_cancellation_attempt(order_id, "failed_insufficient_gas")
-
-                # Still update order to failed state so it's removed from active orders
-                # but with a clear message about what happened
-                order_update = OrderUpdate(
-                    client_order_id=order_id,
-                    trading_pair=tracked_order.trading_pair,
-                    update_timestamp=self.current_timestamp,
-                    new_state=OrderState.FAILED,
-                    misc_updates={
-                        "error_message": "Cannot cancel - insufficient gas balance. Order may still be active on blockchain.",
-                        "error_type": "INSUFFICIENT_GAS_FOR_CANCEL",
-                        "cancellation_blocked": True,
-                        "gas_check_timestamp": time.time(),
-                    },
-                )
-                self._order_tracker.process_order_update(order_update)
-
-                # Return a special ID to indicate gas issue
-                return f"GAS_INSUFFICIENT_{order_id}"
-
-            # Phase 4 Enhancement: Record cancellation attempt
-            self._record_cancellation_attempt(order_id, "started")
-
-            # Method 1: Use StandardWeb3 cancel_orders (preferred method)
-            if self._standard_client and order_id in self._order_id_map:
-                order_info = self._order_id_map[order_id]
-
-                # Check if this order was immediately filled
-                if order_info.get("immediately_filled", False) or order_info.get("blockchain_order_id") is None:
-                    self.logger().info(f"Order {order_id} was immediately filled - no order to cancel on blockchain")
-                    # Mark as cancelled locally since there's no blockchain order to cancel
-                    cancellation_id = f"immediately_filled_{order_id}"
-                    self.logger().info(f"Order marked as locally cancelled (was immediately filled): {order_id}")
-
-                    # Phase 4: Record successful local cancellation
-                    cancellation_time = (time.time() - cancellation_start_time) * 1000
-                    self._record_cancellation_attempt(order_id, "success_local", cancellation_time)
-
-                    return cancellation_id
-
-                base_address = order_info["base_address"]
-                quote_address = order_info["quote_address"]
-                is_bid = order_info["is_bid"]
-                blockchain_order_id = order_info["blockchain_order_id"]
-
-                self.logger().info(
-                    f"🔄 PHASE 4: Starting cancellation for {order_id} -> blockchain_order_id: {blockchain_order_id}"
-                )
-
-                # Phase 4 Enhancement: Add timeout wrapper for cancellation
-                try:
-                    # Use asyncio.wait_for with shorter timeout for better UX
-                    cancellation_result = await asyncio.wait_for(
-                        self._execute_cancellation_with_retry(order_id, order_info),
-                        timeout=30.0,  # 30 second timeout for cancellation
-                    )
-
-                    cancellation_time = (time.time() - cancellation_start_time) * 1000
-                    self.logger().info(f"✅ Order cancellation completed in {cancellation_time:.2f}ms")
-
-                    # Phase 4: Record successful cancellation
-                    self._record_cancellation_attempt(order_id, "success", cancellation_time)
-
-                    return cancellation_result
-
-                except asyncio.TimeoutError:
-                    # Phase 4 Enhancement: Handle cancellation timeout gracefully
-                    cancellation_time = (time.time() - cancellation_start_time) * 1000
-                    self.logger().warning(
-                        f"⏰ Cancellation timeout for {order_id} after {cancellation_time:.0f}ms. "
-                        f"Transaction may still be processing on blockchain."
-                    )
-
-                    # Record timeout and suggest action
-                    self._record_cancellation_attempt(order_id, "timeout", cancellation_time)
-                    self._handle_cancellation_timeout(order_id, cancellation_time)
-
-                    # Return a timeout ID so the system can track this
-                    return f"timeout_{order_id}_{int(time.time())}"
-
-                # If blockchain_order_id is a transaction hash (string), we need to extract the real order ID
-                if isinstance(blockchain_order_id, str):
-                    self.logger().info(f"Blockchain order ID is a transaction hash, extracting order ID from receipt")
-                    extracted_order_id = await self._extract_order_id_from_transaction_receipt(blockchain_order_id)
-
-                    if extracted_order_id == "IMMEDIATELY_FILLED":
-                        self.logger().info(
-                            f"Order {order_id} was immediately filled - no order to cancel on blockchain"
-                        )
-                        cancellation_id = f"immediately_filled_{order_id}"
-                        return cancellation_id
-                    elif extracted_order_id is None:
-                        self.logger().warning(
-                            f"Could not extract order ID from transaction {blockchain_order_id}, falling back to direct contract"
-                        )
-                        # Continue to fallback method below
-                    else:
-                        blockchain_order_id = extracted_order_id
-                        self.logger().info(f"Extracted integer order ID: {blockchain_order_id}")
-
-                # Only proceed with StandardWeb3 if we have a valid integer order ID
-                if isinstance(blockchain_order_id, int):
-                    # Use transaction lock to prevent nonce conflicts (same as order placement)
-                    async with self._transaction_lock:
-                        # Get current nonce for the account to avoid "nonce too low" errors (same as order placement)
-                        current_nonce = await self._get_current_nonce()
-
-                        # Prepare cancel_order_data structure for StandardWeb3
-                        cancel_order_data = [
-                            {
-                                "base": base_address,
-                                "quote": quote_address,
-                                "isBid": is_bid,  # Use camelCase as expected by StandardWeb3 API
-                                "orderId": blockchain_order_id,  # Use 'orderId' (camelCase) as expected by StandardWeb3
-                            }
-                        ]
-
-                        try:
-                            # Use StandardWeb3 cancel_orders method (without nonce parameter - it manages its own nonce)
-                            cancel_tx_hash = await self._standard_client.cancel_orders(cancel_order_data)
-
-                            # Clean up the stored order info
-                            del self._order_id_map[order_id]
-
-                            self.logger().info(f"Order cancelled via StandardWeb3: {order_id} -> {cancel_tx_hash}")
-                            return cancel_tx_hash
-
-                        except Exception as e:
-                            self.logger().warning(f"StandardWeb3 cancel_orders failed for {order_id}: {e}")
-                            # Continue to fallback method below
-
-            # Method 2: Direct on-chain contract interaction (fallback)
-
-            # Check if we have the order information stored in _order_id_map
-            if order_id in self._order_id_map:
-                order_info = self._order_id_map[order_id]
-
-                # Check if this order was immediately filled
-                if order_info.get("immediately_filled", False) or order_info.get("blockchain_order_id") is None:
-                    self.logger().info(f"Order {order_id} was immediately filled - no order to cancel on blockchain")
-                    cancellation_id = f"immediately_filled_{order_id}"
-                    return cancellation_id
-
-                base_address = order_info["base_address"]
-                quote_address = order_info["quote_address"]
-                is_bid = order_info["is_bid"]
-                blockchain_order_id = order_info["blockchain_order_id"]
-
-                self.logger().info("Found order mapping for {order_id}: blockchain_order_id={blockchain_order_id}")
-
-                # If blockchain_order_id is a transaction hash (string), we need to extract the real order ID
-                if isinstance(blockchain_order_id, str):
-                    self.logger().info(f"Blockchain order ID is a transaction hash, extracting order ID from receipt")
-                    extracted_order_id = await self._extract_order_id_from_transaction_receipt(blockchain_order_id)
-
-                    if extracted_order_id == "IMMEDIATELY_FILLED":
-                        self.logger().info(
-                            f"Order {order_id} was immediately filled - no order to cancel on blockchain"
-                        )
-                        cancellation_id = f"immediately_filled_{order_id}"
-                        return cancellation_id
-                    elif extracted_order_id is None:
-                        self.logger().warning(
-                            f"Could not extract order ID from transaction {blockchain_order_id}, using local cancellation"
-                        )
-                        cancellation_id = f"cancelled_{order_id}"
-                        return cancellation_id
-
-                    blockchain_order_id = extracted_order_id
-                    self.logger().info(f"Extracted integer order ID: {blockchain_order_id}")
-
-                elif not isinstance(blockchain_order_id, int):
-                    self.logger().warning(
-                        f"Invalid blockchain order ID type: {type(blockchain_order_id)}, value: {blockchain_order_id}"
-                    )
-                    cancellation_id = f"cancelled_{order_id}"
-                    return cancellation_id
-
-                # Cancel order using direct contract interaction with integer order ID (fallback method)
-                cancel_tx_hash = await self._cancel_order_on_contract(
-                    base_address=base_address, quote_address=quote_address, is_bid=is_bid, order_id=blockchain_order_id
-                )
-
-                # Clean up the stored order info
-                del self._order_id_map[order_id]
-
-                self.logger().info(f"Order cancelled on contract: {order_id} -> {cancel_tx_hash}")
-                return cancel_tx_hash
-
-            else:
-                # No order mapping found - fall back to local cancellation
-                self.logger().warning(f"No order mapping found for {order_id}, marking as cancelled locally")
-                cancellation_id = f"cancelled_{order_id}"
-                return cancellation_id
-
-                # Get the blockchain order ID from our stored mapping
-                if order_id in self._order_id_map:
-                    order_mapping = self._order_id_map[order_id]
-                    blockchain_order_id = order_mapping.get("blockchain_order_id")
-
-                    self.logger().info(
-                        "Found stored order mapping for {order_id}: blockchain_order_id={blockchain_order_id}"
-                    )
-
-                    # If blockchain_order_id is a transaction hash (string), we need to extract the real order ID
-                    if isinstance(blockchain_order_id, str):
-                        self.logger().info(
-                            f"Blockchain order ID is a transaction hash, extracting order ID from receipt"
-                        )
-                        blockchain_order_id = await self._extract_order_id_from_transaction_receipt(blockchain_order_id)
-
-                        if blockchain_order_id is None:
-                            self.logger().warning(
-                                f"Could not extract order ID from transaction {exchange_order_id}, using local cancellation"
-                            )
-                            cancellation_id = f"cancelled_{order_id}"
-                            return cancellation_id
-                    elif not isinstance(blockchain_order_id, int):
-                        self.logger().warning(
-                            f"Invalid blockchain order ID type: {type(blockchain_order_id)}, value: {blockchain_order_id}"
-                        )
-                        cancellation_id = f"cancelled_{order_id}"
-                        return cancellation_id
+                if execution_status == "matched":
+                    self.logger().info(f"Order {order_id} was immediately executed - cannot be cancelled")
+                    # This is a successful immediate execution, not a failure
+                    return False
+                elif execution_status == "failed":
+                    self.logger().warning(f"Order {order_id} failed during placement - marking as not found")
+                    # This is a true failure case
+                    await self._order_tracker.process_order_not_found(order_id)
+                    return False
                 else:
-                    self.logger().warning(f"No order mapping found for {order_id}, using local cancellation")
-                    cancellation_id = f"cancelled_{order_id}"
-                    return cancellation_id
+                    # Unknown status - could be immediate execution without proper tracking
+                    self.logger().warning(f"Order {order_id} has no exchange_order_id (status: {execution_status}) - likely immediate execution")
+                    return False
 
-                # Cancel order using direct contract interaction
-                cancel_tx_hash = await self._cancel_order_on_contract(
-                    base_address=base_address, quote_address=quote_address, is_bid=is_bid, order_id=blockchain_order_id
-                )
+            self.logger().info(f"🔧 Cancelling order {order_id} with combined ID: {combined_id}")
 
-                self.logger().info(f"Order cancelled on contract: {order_id} -> {cancel_tx_hash}")
-                return cancel_tx_hash
+            # Extract transaction hash and blockchain order ID from combined format
+            if ":" in combined_id:
+                # New format: "tx_hash:order_id"
+                transaction_hash, blockchain_order_id_str = combined_id.split(":", 1)
+                try:
+                    blockchain_order_id = int(blockchain_order_id_str)
+                    self.logger().info(f"✅ Extracted from combined ID: tx_hash={transaction_hash}, order_id={blockchain_order_id}")
+                except ValueError:
+                    self.logger().error(f"❌ Invalid blockchain order ID format: {blockchain_order_id_str}")
+                    raise ValueError(f"Invalid blockchain order ID format in exchange_order_id")
+            else:
+                # Legacy format: just transaction hash - need to extract order ID from receipt
+                transaction_hash = combined_id
+                self.logger().info(f"⚠️  Legacy format detected, extracting order ID from transaction receipt...")
+
+                try:
+                    blockchain_order_id = await self._extract_blockchain_order_id_for_cancel(transaction_hash)
+                    if blockchain_order_id is None:
+                        raise ValueError("Could not extract order ID from transaction receipt")
+                    self.logger().info(f"🎯 Using OrderPlaced ID: {blockchain_order_id} from tx: {transaction_hash}")
+                except Exception as e:
+                    # If we can't extract the order ID, the order might have been immediately matched
+                    self.logger().warning(f"⚠️  Could not extract blockchain order ID from transaction {transaction_hash}: {e}")
+                    self.logger().info(f"📊 This often happens with orders that matched immediately - they can't be cancelled")
+
+                    # Don't mark as "not found" - these are likely successful immediate executions
+                    # Just return False to indicate cancellation was not possible
+                    return False
+
+            self.logger().info(f"🎯 Using blockchain order ID: {blockchain_order_id} for cancellation")
+
+            # Get token addresses from trading pair
+            base_symbol, quote_symbol = tracked_order.trading_pair.split('-')
+            base_address = utils.convert_symbol_to_address(base_symbol, self._domain)
+            quote_address = utils.convert_symbol_to_address(quote_symbol, self._domain)
+            is_bid = (tracked_order.trade_type.name == "BUY")
+
+            self.logger().info(f"🎯 Performing on-chain cancellation:")
+            self.logger().info(f"   - blockchain_order_id: {blockchain_order_id}")
+            self.logger().info(f"   - transaction_hash: {transaction_hash}")
+            self.logger().info(f"   - base: {base_symbol} -> {base_address}")
+            self.logger().info(f"   - quote: {quote_symbol} -> {quote_address}")
+            self.logger().info(f"   - is_bid: {is_bid}")
+
+            # Perform direct contract cancellation using blockchain order ID
+            cancel_tx_hash = await self._cancel_order_on_contract(
+                base_address=base_address,
+                quote_address=quote_address,
+                is_bid=is_bid,
+                order_id=blockchain_order_id  # Use blockchain order ID (uint32)
+            )
+
+            self.logger().info(f"🔄 Cancel transaction sent: {cancel_tx_hash}, waiting for confirmation...")
+
+            # Wait for transaction confirmation and verify success
+            success = await self._verify_cancellation_success(cancel_tx_hash, blockchain_order_id)
+
+            if success:
+                self.logger().info(f"✅ Order cancelled successfully: {order_id} -> {cancel_tx_hash}")
+                return True
+            else:
+                self.logger().warning(f"⚠️  Cancel transaction was mined but order {order_id} may not be cancelled (tx: {cancel_tx_hash})")
+                return False
 
         except Exception as e:
-            self.logger().error(f"Error cancelling order {order_id}: {e}")
-            # Fall back to local cancellation if all methods fail
-            cancellation_id = f"cancelled_{order_id}"
-            # Clean up the stored order info if it exists
-            if order_id in self._order_id_map:
-                del self._order_id_map[order_id]
-            self.logger().info(f"Falling back to local cancellation: {order_id} -> {cancellation_id}")
-            return cancellation_id
+            self.logger().error(f"❌ Failed to cancel order {order_id}: {e}", exc_info=True)
+            # If cancellation fails for any other reason, let the base class handle it
+            return False
 
-    async def _extract_order_id_from_transaction_receipt(self, tx_hash: str) -> Optional[int]:
+    async def get_order_price(self, trading_pair: str, is_buy: bool, amount: Decimal) -> Decimal:
         """
-        Extract the order ID from a transaction receipt by parsing the OrderPlaced event logs.
+        Override to use the enhanced quote price calculation.
+        """
+        return await self.get_quote_price(trading_pair, is_buy, amount)
+
+    async def _extract_blockchain_order_id_for_cancel(self, transaction_hash: str) -> int:
+        """
+        Extract blockchain order ID from transaction receipt for cancellation.
 
         Args:
-            tx_hash: Transaction hash from order placement
+            transaction_hash: Transaction hash from order creation
 
         Returns:
-            Order ID if found, None otherwise
+            Blockchain order ID (uint32) needed for contract cancellation
         """
         try:
             import json
@@ -3315,83 +3332,96 @@ class StandardExchange(ExchangePyBase):
 
             from web3 import Web3
 
-            # Load local ABI file (more up-to-date than standardweb3 package)
+            # Load local ABI file
             abi_path = os.path.join(os.path.dirname(__file__), "lib", "matching_engine_abi.json")
             with open(abi_path, "r") as f:
                 matching_engine_abi = json.load(f)
 
             # Connect to Somnia network
-            rpc_url = CONSTANTS.DOMAIN_CONFIG[self._domain]["rpc_url"]
-            w3 = Web3(Web3.HTTPProvider(rpc_url))
+            w3 = Web3(Web3.HTTPProvider(self._rpc_url))
 
-            if not w3.is_connected():
-                self.logger().error("Failed to connect to RPC for order ID extraction")
-                return None
+            # Get contract instance
+            contract_address = Web3.to_checksum_address(CONSTANTS.STANDARD_EXCHANGE_ADDRESS)
+            contract = w3.eth.contract(address=contract_address, abi=matching_engine_abi)
 
             # Get transaction receipt
-            receipt = w3.eth.get_transaction_receipt(tx_hash)
+            tx_hash_bytes = bytes.fromhex(transaction_hash.replace('0x', ''))
+            receipt = w3.eth.get_transaction_receipt(tx_hash_bytes)
 
-            if not receipt:
-                self.logger().warning(f"No transaction receipt found for {tx_hash}")
+            if receipt.status != 1:
+                self.logger().error(f"Transaction failed: {transaction_hash}")
                 return None
 
-            # Create contract instance to decode logs
-            exchange_address = CONSTANTS.STANDARD_EXCHANGE_ADDRESS
-            exchange_checksum = w3.to_checksum_address(exchange_address)
-            contract = w3.eth.contract(address=exchange_checksum, abi=matching_engine_abi)
+            # Parse events from transaction logs - handle both limit orders and immediate matching
+            order_placed_id = None
+            order_matched_ids = []
 
-            # Check if order was immediately matched (no OrderPlaced event)
-            order_matched_found = False
-            order_placed_found = False
+            for log_entry in receipt.logs:
+                try:
+                    # Try to decode as OrderPlaced event (limit order that stays on book)
+                    try:
+                        decoded_log = contract.events.OrderPlaced().process_log(log_entry)
+                        order_placed_id = decoded_log['args']['id']
+                        self.logger().info(f"✅ Found OrderPlaced event with ID: {order_placed_id}")
+                        break  # For limit orders, use OrderPlaced ID
+                    except:
+                        pass  # Not an OrderPlaced event
 
-            self.logger().info(f"Processing {len(receipt.logs)} logs for tx {tx_hash}")
-            self.logger().info(f"Looking for events from exchange address: {exchange_address.lower()}")
+                    # Try to decode as OrderMatched event (immediate execution)
+                    try:
+                        decoded_log = contract.events.OrderMatched().process_log(log_entry)
+                        # OrderMatched events might contain multiple order IDs
+                        args = decoded_log['args']
 
-            # Process each log in the receipt
-            for i, log in enumerate(receipt.logs):
-                self.logger().info(
-                    f"Log {i}: address={log.address.lower()}, is_exchange={log.address.lower() == exchange_address.lower()}"
-                )
+                        # Common field names for order IDs in matching events
+                        for id_field in ['orderId', 'order_id', 'id', 'takerOrderId', 'makerOrderId']:
+                            if id_field in args:
+                                matched_id = args[id_field]
+                                if matched_id not in order_matched_ids:
+                                    order_matched_ids.append(matched_id)
+                                    self.logger().info(f"✅ Found OrderMatched event with ID ({id_field}): {matched_id}")
+                    except:
+                        pass  # Not an OrderMatched event
 
-                # Only process logs from our exchange contract
-                if log.address.lower() != exchange_address.lower():
+                    # Try to decode other trade/fill events
+                    for event_name in ['Trade', 'Fill', 'OrderFilled']:
+                        try:
+                            event_handler = getattr(contract.events, event_name, None)
+                            if event_handler:
+                                decoded_log = event_handler().process_log(log_entry)
+                                args = decoded_log['args']
+
+                                # Extract any order ID from trade events
+                                for id_field in ['orderId', 'order_id', 'id', 'takerOrderId', 'makerOrderId']:
+                                    if id_field in args:
+                                        trade_id = args[id_field]
+                                        if trade_id not in order_matched_ids:
+                                            order_matched_ids.append(trade_id)
+                                            self.logger().info(f"✅ Found {event_name} event with ID ({id_field}): {trade_id}")
+                        except:
+                            continue  # Not this type of event
+
+                except Exception:
+                    # This log entry couldn't be decoded, continue
                     continue
 
-                self.logger().info(f"Processing exchange contract log {i}")
-
-                try:
-                    # Try to decode this log as an OrderPlaced event
-                    decoded_log = contract.events.OrderPlaced().process_log(log)
-
-                    # Extract the order ID (the 'id' field)
-                    order_id = decoded_log["args"]["id"]
-                    self.logger().info(f"Extracted order ID from OrderPlaced event: {order_id} (tx: {tx_hash})")
-                    return order_id
-
-                except Exception as e1:
-                    self.logger().info(f"Log {i} not OrderPlaced: {e1}")
-                    # Try to decode as OrderMatched event
-                    try:
-                        decoded_log = contract.events.OrderMatched().process_log(log)
-                        order_matched_found = True
-                        self.logger().info("Found OrderMatched event in log {i}: {decoded_log['args']} (tx: {tx_hash})")
-                        # Continue to check for other events
-                        continue
-                    except Exception as e2:
-                        self.logger().info(f"Log {i} not OrderMatched: {e2}")
-                        # This log is neither OrderPlaced nor OrderMatched, continue
-                        continue
-
-            # If we found OrderMatched but no OrderPlaced, the order was immediately filled
-            if order_matched_found:
-                self.logger().info(f"Order immediately matched/filled - no order book entry created (tx: {tx_hash})")
-                return "IMMEDIATELY_FILLED"  # Special marker to indicate immediate fill
-
-            self.logger().warning(f"No OrderPlaced or OrderMatched event found in transaction logs for {tx_hash}")
-            return None
+            # Return the appropriate order ID
+            if order_placed_id is not None:
+                # Limit order that stayed on book - use OrderPlaced ID
+                self.logger().info(f"🎯 Using OrderPlaced ID: {order_placed_id} from tx: {transaction_hash}")
+                return order_placed_id
+            elif order_matched_ids:
+                # Immediate execution - use the first matched order ID
+                matched_id = order_matched_ids[0]
+                self.logger().info(f"🎯 Using first OrderMatched ID: {matched_id} from tx: {transaction_hash}")
+                self.logger().info(f"   - All matched IDs found: {order_matched_ids}")
+                return matched_id
+            else:
+                self.logger().error(f"No OrderPlaced or OrderMatched events found in transaction {transaction_hash}")
+                return None
 
         except Exception as e:
-            self.logger().error(f"Error extracting order ID from transaction receipt {tx_hash}: {e}")
+            self.logger().error(f"Error extracting blockchain order ID from {transaction_hash}: {e}")
             return None
 
     async def _cancel_order_on_contract(
@@ -3436,14 +3466,42 @@ class StandardExchange(ExchangePyBase):
                 # Get current nonce
                 nonce = await self._get_current_nonce()
 
-                # Build transaction
+                # Build transaction with increased gas limit
+                self.logger().info(f"🔧 Building cancel transaction:")
+                self.logger().info(f"   - Contract: {contract_address}")
+                self.logger().info(f"   - Method: cancelOrder({base_address}, {quote_address}, {is_bid}, {order_id})")
+                self.logger().info(f"   - From: {account.address}")
+                self.logger().info(f"   - Nonce: {nonce}")
+
+                # Estimate gas first
+                # try:
+                #     gas_estimate = w3.eth.estimate_gas({
+                #         'from': account.address,
+                #         'to': contract_address,
+                #         'data': contract.encodeABI(fn_name='cancelOrder', args=[
+                #             Web3.to_checksum_address(base_address),
+                #             Web3.to_checksum_address(quote_address),
+                #             is_bid,
+                #             order_id
+                #         ])
+                #     })
+
+                #     # CRITICAL: Add significant gas buffer - trace shows OUT_OF_GAS at 0x2337d (144253)
+                #     # We need much more gas for complex cancellation logic
+                #     gas_limit = max(int(gas_estimate * 3.0), 600000)  # At least 600k with 200% buffer
+                #     self.logger().info(f"🔧 Gas estimate: {gas_estimate}, using limit: {gas_limit}")
+
+                # except Exception as e:
+                #     self.logger().warning(f"⚠️  Could not estimate gas: {e}, using 3000k default")
+                gas_limit = 3000000  # Increased default - much higher than the failing 144k
+
                 transaction = contract.functions.cancelOrder(
                     Web3.to_checksum_address(base_address), Web3.to_checksum_address(quote_address), is_bid, order_id
                 ).build_transaction(
                     {
                         "from": account.address,
                         "nonce": nonce,
-                        "gas": 200000,  # Estimate gas limit for cancel order
+                        "gas": gas_limit,  # Much higher gas limit
                         "gasPrice": w3.eth.gas_price,
                         "chainId": CONSTANTS.SOMNIA_CHAIN_ID,
                     }
@@ -3462,6 +3520,101 @@ class StandardExchange(ExchangePyBase):
         except Exception as e:
             self.logger().error(f"Error cancelling order on contract: {e}")
             raise
+
+    async def _verify_cancellation_success(self, tx_hash: str, expected_order_id: int) -> bool:
+        """
+        Verify that a cancellation transaction actually succeeded in cancelling the order.
+
+        Args:
+            tx_hash: Transaction hash of the cancellation
+            expected_order_id: The order ID that should have been cancelled
+
+        Returns:
+            True if cancellation was successful, False otherwise
+        """
+        try:
+            import asyncio
+
+            from web3 import Web3
+
+            w3 = Web3(Web3.HTTPProvider(self._rpc_url))
+
+            # Wait for transaction to be mined (up to 30 seconds)
+            receipt = None
+            for _ in range(30):  # 30 attempts, 1 second apart
+                try:
+                    receipt = w3.eth.get_transaction_receipt(tx_hash)
+                    break
+                except Exception:
+                    await asyncio.sleep(1)
+
+            if not receipt:
+                self.logger().warning(f"⚠️  Cancel transaction {tx_hash} not mined after 30 seconds")
+                return False
+
+            # Check if transaction succeeded
+            if receipt.status != 1:
+                self.logger().error(f"❌ Cancel transaction {tx_hash} failed with status: {receipt.status}")
+                return False
+
+            # CRITICAL: Check for internal failures by examining logs
+            # Based on the trace, failed cancellations have NO logs (empty logs array)
+            # Successful cancellations should have OrderCancelled events
+
+            # Check for OrderCancelled event in the logs
+            order_cancelled_found = False
+            if receipt.logs:
+                self.logger().info(f"🔍 Found {len(receipt.logs)} logs in cancel transaction")
+
+                # Load contract ABI to decode events properly
+                try:
+                    abi_path = os.path.join(os.path.dirname(__file__), "lib", "matching_engine_abi.json")
+                    with open(abi_path, "r") as f:
+                        abi = json.load(f)
+
+                    contract_address = Web3.to_checksum_address(CONSTANTS.STANDARD_EXCHANGE_ADDRESS)
+                    contract = w3.eth.contract(address=contract_address, abi=abi)
+
+                    for log_entry in receipt.logs:
+                        try:
+                            decoded_log = contract.events.OrderCancelled().process_log(log_entry)
+                            cancelled_order_id = decoded_log['args']['id']
+                            self.logger().info(f"✅ Found OrderCancelled event: order ID {cancelled_order_id}")
+
+                            if cancelled_order_id == expected_order_id:
+                                order_cancelled_found = True
+                                break
+                        except Exception:
+                            # Not an OrderCancelled event or decoding failed, try other events
+                            try:
+                                # Just log the raw event for debugging
+                                if len(log_entry.topics) > 0:
+                                    event_sig = log_entry.topics[0].hex()
+                                    self.logger().debug(f"🔍 Found event: {event_sig}")
+                            except Exception:
+                                pass
+                            continue
+
+                except Exception as e:
+                    self.logger().warning(f"⚠️  Could not decode logs: {e}")
+                    # Fall back to simple log presence check
+                    order_cancelled_found = len(receipt.logs) > 0
+            else:
+                self.logger().error(f"❌ No logs in cancel transaction - cancellation failed internally")
+                self.logger().error(f"❌ This indicates the cancelOrder call reverted or failed")
+
+            # Final determination
+            if order_cancelled_found:
+                self.logger().info(f"✅ Cancellation verified: order {expected_order_id} successfully cancelled")
+                return True
+            else:
+                self.logger().error(f"❌ Cancellation failed: no OrderCancelled event for order {expected_order_id}")
+                self.logger().error(f"❌ Possible reasons: order already executed/cancelled, invalid order ID, or insufficient gas")
+                return False
+
+        except Exception as e:
+            self.logger().error(f"Error verifying cancellation success for {tx_hash}: {e}")
+            return False
 
     def _parse_trading_rule(self, trading_rule: Dict[str, Any]) -> TradingRule:
         """
@@ -4541,42 +4694,35 @@ class StandardExchange(ExchangePyBase):
 
     async def _execute_cancellation_with_retry(self, order_id: str, order_info: Dict) -> str:
         """Execute cancellation with retry logic and better error handling."""
-        max_retries = 2
         base_address = order_info["base_address"]
         quote_address = order_info["quote_address"]
         is_bid = order_info["is_bid"]
         blockchain_order_id = order_info["blockchain_order_id"]
 
-        for attempt in range(max_retries + 1):
-            try:
-                self.logger().info(f"🔄 Cancellation attempt {attempt + 1}/{max_retries + 1} for {order_id}")
+        # Comment out StandardWeb3 attempt - go directly to on-chain contract cancellation
+        # try:
+        #     self.logger().info(f"🔄 Attempting StandardWeb3 cancellation for {order_id}")
 
-                # Try StandardWeb3 client first
-                cancellation_result = await self._standard_client.cancel_orders(
-                    base_address=base_address, quote_address=quote_address, is_bid=is_bid, orders=[blockchain_order_id]
-                )
+        #     # Try StandardWeb3 client first (but don't pass base_address - it's not supported)
+        #     cancellation_result = await self._standard_client.cancel_orders(
+        #         orders=[blockchain_order_id]
+        #     )
 
-                if cancellation_result and cancellation_result.get("tx_hash"):
-                    tx_hash = cancellation_result["tx_hash"]
-                    self.logger().info(f"✅ StandardWeb3 cancellation successful: {tx_hash}")
-                    return tx_hash
-                else:
-                    raise Exception("StandardWeb3 cancellation returned no tx_hash")
+        #     if cancellation_result and cancellation_result.get("tx_hash"):
+        #         tx_hash = cancellation_result["tx_hash"]
+        #         self.logger().info(f"✅ StandardWeb3 cancellation successful: {tx_hash}")
+        #         return tx_hash
+        #     else:
+        #         raise Exception("StandardWeb3 cancellation returned no tx_hash")
 
-            except Exception as e:
-                self.logger().warning(f"⚠️  Cancellation attempt {attempt + 1} failed: {e}")
+        # except Exception as e:
+        #     self.logger().warning(f"⚠️ StandardWeb3 cancellation failed: {e}")
 
-                if attempt == max_retries:
-                    # Final attempt: try direct contract call
-                    self.logger().info(f"🔧 Falling back to direct contract cancellation for {order_id}")
-                    return await self._cancel_order_on_contract(
-                        base_address, quote_address, is_bid, blockchain_order_id
-                    )
-
-                # Wait before retry
-                await asyncio.sleep(1.0)
-
-        raise Exception("All cancellation attempts failed")
+        # Go directly to contract cancellation (reliable method)
+        self.logger().info(f"🔧 Using direct contract cancellation for {order_id}")
+        return await self._cancel_order_on_contract(
+            base_address, quote_address, is_bid, blockchain_order_id
+        )
 
     def _record_cancellation_attempt(self, order_id: str, status: str, duration_ms: float = None):
         """Record cancellation attempt for metrics and analysis."""
