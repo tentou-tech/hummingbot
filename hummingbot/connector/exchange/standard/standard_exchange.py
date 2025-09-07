@@ -33,6 +33,7 @@ limitSell/limitBuy functions are properly implemented in the StandardWeb3 librar
 import asyncio
 import logging
 import time
+from contextlib import contextmanager
 from decimal import Decimal
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
 
@@ -75,6 +76,61 @@ try:
     import pandas as pd
 except ImportError:
     pd = None
+
+
+# 📊 PERFORMANCE TIMING UTILITIES
+@contextmanager
+def timing_context(operation_name: str):
+    """Context manager for timing operations with detailed logging."""
+    start_time = time.time()
+    try:
+        yield
+    finally:
+        duration = time.time() - start_time
+        # Use a logger that's always available
+        logger = logging.getLogger(__name__)
+        logger.info(f"⏱️  TIMING: {operation_name} took {duration:.3f}s")
+
+
+class PerformanceTracker:
+    """Enhanced performance tracker with method-level timing and periodic reporting."""
+
+    def __init__(self):
+        self.timings = {}
+        self.call_counts = {}
+        self.start_time = time.time()
+
+    def add_timing(self, method_name: str, duration: float):
+        if method_name not in self.timings:
+            self.timings[method_name] = []
+            self.call_counts[method_name] = 0
+
+        self.timings[method_name].append(duration)
+        self.call_counts[method_name] += 1
+
+    def get_summary(self) -> Dict[str, Any]:
+        """Get comprehensive performance summary."""
+        summary = {
+            "total_runtime": time.time() - self.start_time,
+            "methods": {}
+        }
+
+        for method, times in self.timings.items():
+            if times:  # Only include methods that have been called
+                summary["methods"][method] = {
+                    "count": len(times),
+                    "total_time": sum(times),
+                    "avg_time": sum(times) / len(times),
+                    "min_time": min(times),
+                    "max_time": max(times),
+                    "last_time": times[-1] if times else 0
+                }
+
+        return summary
+
+
+# Global performance tracker instance
+performance_tracker = PerformanceTracker()
 
 
 class StandardExchange(ExchangePyBase):
@@ -238,7 +294,14 @@ class StandardExchange(ExchangePyBase):
         self._order_execution_status: Dict[str, str] = {}  # client_order_id -> 'placed'|'matched'|'failed'
         self._tx_monitor_task: Optional[asyncio.Task] = None  # Background task for transaction monitoring
 
+        # 💰 PHASE 2: Add periodic balance refresh infrastructure
+        self._balance_refresh_task: Optional[asyncio.Task] = None  # Background task for periodic balance updates
+        self._balance_refresh_interval = 45.0  # Refresh every 45 seconds
+        self._last_balance_refresh = 0.0  # Timestamp of last balance refresh
+        self._balance_refresh_on_error = True  # Whether to refresh balances after order failures
+
         self.logger().info("DEBUG: Transaction tracking infrastructure initialized")
+        self.logger().info("DEBUG: Periodic balance refresh infrastructure initialized")
         self.logger().info("DEBUG: StandardExchange.__init__ completed successfully")
 
     @staticmethod
@@ -984,6 +1047,87 @@ class StandardExchange(ExchangePyBase):
             self.logger().error(f"Error generating error summary: {e}")
             return {"error": str(e)}
 
+    # 💰 PERIODIC BALANCE REFRESH METHODS
+
+    async def _start_balance_refresh(self):
+        """Start background periodic balance refresh task."""
+        if self._balance_refresh_task is None or self._balance_refresh_task.done():
+            self._balance_refresh_task = asyncio.create_task(self._periodic_balance_refresh())
+            self.logger().info(f"🔄 Started periodic balance refresh (every {self._balance_refresh_interval}s)")
+        else:
+            self.logger().debug("Balance refresh task already running")
+
+    async def _stop_balance_refresh(self):
+        """Stop background balance refresh task."""
+        if self._balance_refresh_task and not self._balance_refresh_task.done():
+            self._balance_refresh_task.cancel()
+            try:
+                await self._balance_refresh_task
+            except asyncio.CancelledError:
+                pass
+            self.logger().info("🛑 Stopped periodic balance refresh task")
+        else:
+            self.logger().debug("No balance refresh task to stop")
+
+    async def _periodic_balance_refresh(self):
+        """
+        Background task to periodically refresh account balances.
+        Runs every 45 seconds to keep balance data reasonably fresh without impacting performance.
+        """
+        self.logger().info("🔄 Periodic balance refresh task started")
+
+        while True:
+            try:
+                await asyncio.sleep(self._balance_refresh_interval)
+
+                current_time = time.time()
+                self.logger().debug(f"⏰ Performing scheduled balance refresh (interval: {self._balance_refresh_interval}s)")
+
+                # Update balances with timing
+                with timing_context("periodic_balance_refresh"):
+                    await self._update_balances()
+
+                self._last_balance_refresh = current_time
+                self.logger().debug("✅ Scheduled balance refresh completed")
+
+            except asyncio.CancelledError:
+                self.logger().info("🛑 Periodic balance refresh task cancelled")
+                break
+            except Exception as e:
+                self.logger().error(f"Error in periodic balance refresh: {e}")
+                await asyncio.sleep(30)  # Wait 30s on error before retry
+
+    async def _refresh_balances_on_order_failure(self, client_order_id: str, error_message: str):
+        """
+        Refresh balances after order failure if the error might be balance-related.
+        This helps ensure we have accurate balance data for subsequent orders.
+        """
+        if not self._balance_refresh_on_error:
+            return
+
+        # Check if error is likely balance-related
+        error_lower = error_message.lower()
+        balance_related_errors = [
+            "insufficient",
+            "balance",
+            "allowance",
+            "funds",
+            "not enough",
+            "exceeds",
+        ]
+
+        is_balance_error = any(keyword in error_lower for keyword in balance_related_errors)
+
+        if is_balance_error:
+            self.logger().info(f"🔄 Balance-related order failure detected for {client_order_id}, refreshing balances...")
+
+            try:
+                with timing_context("error_triggered_balance_refresh"):
+                    await self._update_balances()
+                self.logger().info("✅ Balance refresh after order failure completed")
+            except Exception as refresh_error:
+                self.logger().error(f"Error refreshing balances after order failure: {refresh_error}")
+
     async def start_network(self):
         """
         Initialize network and exchange info when connector starts.
@@ -1005,6 +1149,9 @@ class StandardExchange(ExchangePyBase):
             # 🔄 PHASE 3: Start transaction monitoring
             await self._start_tx_monitoring()
 
+            # 💰 PHASE 4: Start periodic balance refresh
+            await self._start_balance_refresh()
+
             self.logger().info("🎉 Somnia network started successfully")
         except Exception as e:
             self.logger().error(f"DEBUG: Exception in start_network(): {e}")
@@ -1021,8 +1168,9 @@ class StandardExchange(ExchangePyBase):
         try:
             self.logger().info("🛑 Stopping Somnia network...")
 
-            # Stop transaction monitoring first
+            # Stop background tasks
             await self._stop_tx_monitoring()
+            await self._stop_balance_refresh()
 
             # Call parent's stop_network to cleanup all background tasks
             await super().stop_network()
@@ -2195,9 +2343,9 @@ class StandardExchange(ExchangePyBase):
             self.logger().info(f"  - order_type: {order_type}")
             self.logger().info(f"  - price: {price}")
 
-            # Update balances before placing order to ensure budget checker has fresh data
-            self.logger().info("Updating balances before order placement...")
-            await self._update_balances()
+            # Use cached balance data from startup - no need to update before every order
+            # Balance updates happen at startup and can be refreshed on-demand if needed
+            self.logger().info("Using cached balance data for order placement...")
 
             base, quote = utils.split_trading_pair(trading_pair)
             base_address = utils.convert_symbol_to_address(base, self._domain)
@@ -2376,6 +2524,10 @@ class StandardExchange(ExchangePyBase):
         except Exception as e:
             # Let parent class handle the error properly
             self.logger().error(f"Failed to submit order {order.client_order_id}: {e}")
+
+            # Refresh balances if error might be balance-related
+            await self._refresh_balances_on_order_failure(order.client_order_id, str(e))
+
             raise
 
     async def _place_order_direct_contract(
@@ -3802,6 +3954,17 @@ class StandardExchange(ExchangePyBase):
             self.logger().error(f"Critical error updating balances: {e}")
             self.logger().exception("Full error details:")
             # Don't raise - let the system continue with existing balances
+
+    async def refresh_balances_on_demand(self):
+        """
+        Manually refresh balances on-demand.
+        This method can be used for debugging or when fresh balance data is specifically needed.
+
+        Note: This performs on-chain calls and should be used sparingly to avoid performance impact.
+        """
+        self.logger().info("📊 Manual balance refresh requested - performing on-chain update...")
+        await self._update_balances()
+        self.logger().info("✅ Manual balance refresh completed")
 
     async def _get_token_balance_web3(self, token: str) -> Decimal:
         """
