@@ -31,8 +31,12 @@ limitSell/limitBuy functions are properly implemented in the StandardWeb3 librar
 """
 
 import asyncio
+
+# ⏱️ PERFORMANCE TIMING IMPORTS
+import datetime
 import logging
 import time
+from contextlib import contextmanager
 from decimal import Decimal
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
 
@@ -75,6 +79,81 @@ try:
     import pandas as pd
 except ImportError:
     pd = None
+
+
+# ⏱️ PERFORMANCE TIMING UTILITIES
+@contextmanager
+def timing_context(operation_name: str, logger=None):
+    """Context manager for timing operations with detailed logging."""
+    start_time = time.time()
+    start_datetime = datetime.datetime.now()
+
+    if logger:
+        logger.info(f"⏱️ TIMING START: {operation_name} at {start_datetime.strftime('%H:%M:%S.%f')[:-3]}")
+
+    try:
+        yield
+    finally:
+        end_time = time.time()
+        end_datetime = datetime.datetime.now()
+        duration_ms = (end_time - start_time) * 1000
+
+        if logger:
+            logger.info(f"⏱️ TIMING END: {operation_name} at {end_datetime.strftime('%H:%M:%S.%f')[:-3]} | Duration: {duration_ms:.2f}ms")
+
+
+class PerformanceTracker:
+    """Track performance metrics for order operations."""
+
+    def __init__(self):
+        self.metrics = {}
+        self.operation_counts = {}
+        self.slow_operations = []  # Track operations > 500ms
+
+    def record_operation(self, operation_name: str, duration_ms: float, details: Dict = None):
+        """Record operation performance metrics."""
+        if operation_name not in self.metrics:
+            self.metrics[operation_name] = {
+                'total_time': 0,
+                'count': 0,
+                'avg_time': 0,
+                'min_time': float('inf'),
+                'max_time': 0,
+                'recent_times': []  # Last 10 operations
+            }
+
+        metric = self.metrics[operation_name]
+        metric['total_time'] += duration_ms
+        metric['count'] += 1
+        metric['avg_time'] = metric['total_time'] / metric['count']
+        metric['min_time'] = min(metric['min_time'], duration_ms)
+        metric['max_time'] = max(metric['max_time'], duration_ms)
+
+        # Keep last 10 operations
+        metric['recent_times'].append(duration_ms)
+        if len(metric['recent_times']) > 10:
+            metric['recent_times'].pop(0)
+
+        # Track slow operations (>500ms)
+        if duration_ms > 500:
+            self.slow_operations.append({
+                'operation': operation_name,
+                'duration_ms': duration_ms,
+                'timestamp': datetime.datetime.now(),
+                'details': details or {}
+            })
+
+        # Keep only last 20 slow operations
+        if len(self.slow_operations) > 20:
+            self.slow_operations.pop(0)
+
+    def get_summary(self) -> Dict:
+        """Get performance summary."""
+        return {
+            'metrics': self.metrics,
+            'slow_operations': self.slow_operations[-5:],  # Last 5 slow operations
+            'total_operations': sum(m['count'] for m in self.metrics.values())
+        }
 
 
 class StandardExchange(ExchangePyBase):
@@ -237,6 +316,12 @@ class StandardExchange(ExchangePyBase):
         self._order_tx_mapping: Dict[str, str] = {}  # client_order_id -> tx_hash
         self._order_execution_status: Dict[str, str] = {}  # client_order_id -> 'placed'|'matched'|'failed'
         self._tx_monitor_task: Optional[asyncio.Task] = None  # Background task for transaction monitoring
+
+        # ⏱️ PERFORMANCE TRACKING INITIALIZATION
+        self._performance_tracker = PerformanceTracker()
+        self._last_performance_log = time.time()
+        self._performance_log_interval = 300  # Log every 5 minutes (300 seconds)
+        self.logger().info("⏱️ Performance tracking initialized")
 
         self.logger().info("DEBUG: Transaction tracking infrastructure initialized")
         self.logger().info("DEBUG: StandardExchange.__init__ completed successfully")
@@ -1929,144 +2014,156 @@ class StandardExchange(ExchangePyBase):
             price: Order price
             is_buy: Whether this is a buy order
         """
-        try:
-            from web3 import Web3
+        # ⏱️ TOKEN ALLOWANCE TIMING
+        with timing_context("ENSURE_ALLOWANCES_TOTAL", self.logger()):
+            try:
+                # ⏱️ TIMING: Web3 Setup
+                with timing_context("ALLOWANCE_WEB3_SETUP", self.logger()):
+                    from web3 import Web3
 
-            # Create Web3 instance
-            rpc_url = CONSTANTS.DOMAIN_CONFIG[self._domain]["rpc_url"]
-            w3 = Web3(Web3.HTTPProvider(rpc_url))
+                    # Create Web3 instance
+                    rpc_url = CONSTANTS.DOMAIN_CONFIG[self._domain]["rpc_url"]
+                    w3 = Web3(Web3.HTTPProvider(rpc_url))
 
-            if not w3.is_connected():
-                self.logger().warning("Failed to connect to RPC for allowance check")
-                return
+                    if not w3.is_connected():
+                        self.logger().warning("Failed to connect to RPC for allowance check")
+                        return
 
-            # Standard ERC-20 allowance ABI
-            erc20_abi = [
-                {
-                    "constant": True,
-                    "inputs": [{"name": "_owner", "type": "address"}, {"name": "_spender", "type": "address"}],
-                    "name": "allowance",
-                    "outputs": [{"name": "", "type": "uint256"}],
-                    "type": "function",
-                },
-                {
-                    "constant": False,
-                    "inputs": [{"name": "_spender", "type": "address"}, {"name": "_value", "type": "uint256"}],
-                    "name": "approve",
-                    "outputs": [{"name": "", "type": "bool"}],
-                    "type": "function",
-                },
-            ]
+                    # Standard ERC-20 allowance ABI
+                    erc20_abi = [
+                        {
+                            "constant": True,
+                            "inputs": [{"name": "_owner", "type": "address"}, {"name": "_spender", "type": "address"}],
+                            "name": "allowance",
+                            "outputs": [{"name": "", "type": "uint256"}],
+                            "type": "function",
+                        },
+                        {
+                            "constant": False,
+                            "inputs": [{"name": "_spender", "type": "address"}, {"name": "_value", "type": "uint256"}],
+                            "name": "approve",
+                            "outputs": [{"name": "", "type": "bool"}],
+                            "type": "function",
+                        },
+                    ]
 
-            exchange_address = CONSTANTS.DOMAIN_CONFIG[self._domain]["standard_exchange_address"]
-            wallet_address = w3.to_checksum_address(self._wallet_address)
-            exchange_checksum = w3.to_checksum_address(exchange_address)
+                    exchange_address = CONSTANTS.DOMAIN_CONFIG[self._domain]["standard_exchange_address"]
+                    wallet_address = w3.to_checksum_address(self._wallet_address)
+                    exchange_checksum = w3.to_checksum_address(exchange_address)
 
-            if is_buy:
-                # For buy orders, need allowance for quote token (USDC)
-                token_address = quote_address
-                quote_decimals = utils.get_token_decimals(utils.convert_address_to_symbol(quote_address, self._domain))
-                required_amount = int((amount * price) * (10**quote_decimals))
-                token_symbol = utils.convert_address_to_symbol(quote_address, self._domain)
-            else:
-                # For sell orders, need allowance for base token (SOMI)
-                token_address = base_address
-                base_decimals = utils.get_token_decimals(utils.convert_address_to_symbol(base_address, self._domain))
-                required_amount = int(amount * (10**base_decimals))
-                token_symbol = utils.convert_address_to_symbol(base_address, self._domain)
+                # ⏱️ TIMING: Token Calculation
+                with timing_context("ALLOWANCE_TOKEN_CALC", self.logger()):
+                    if is_buy:
+                        # For buy orders, need allowance for quote token (USDC)
+                        token_address = quote_address
+                        quote_decimals = utils.get_token_decimals(utils.convert_address_to_symbol(quote_address, self._domain))
+                        required_amount = int((amount * price) * (10**quote_decimals))
+                        token_symbol = utils.convert_address_to_symbol(quote_address, self._domain)
+                    else:
+                        # For sell orders, need allowance for base token (SOMI)
+                        token_address = base_address
+                        base_decimals = utils.get_token_decimals(utils.convert_address_to_symbol(base_address, self._domain))
+                        required_amount = int(amount * (10**base_decimals))
+                        token_symbol = utils.convert_address_to_symbol(base_address, self._domain)
 
-            # Skip allowance check for native tokens
-            if token_address == "0x0000000000000000000000000000000000000000":
-                self.logger().info(f"Skipping allowance check for native token {token_symbol}")
-                return
+                    # Skip allowance check for native tokens
+                    if token_address == "0x0000000000000000000000000000000000000000":
+                        self.logger().info(f"Skipping allowance check for native token {token_symbol}")
+                        return
 
-            # Create contract instance
-            contract = w3.eth.contract(address=w3.to_checksum_address(token_address), abi=erc20_abi)
+                # ⏱️ TIMING: Allowance Check
+                with timing_context(f"ALLOWANCE_CHECK_{token_symbol}", self.logger()):
+                    # Create contract instance
+                    contract = w3.eth.contract(address=w3.to_checksum_address(token_address), abi=erc20_abi)
 
-            # Check current allowance
-            current_allowance = contract.functions.allowance(wallet_address, exchange_checksum).call()
+                    # Check current allowance
+                    current_allowance = contract.functions.allowance(wallet_address, exchange_checksum).call()
 
-            self.logger().info(
-                f"Token allowance check for {token_symbol}: current={current_allowance}, required={required_amount}"
-            )
+                    self.logger().info(
+                        f"Token allowance check for {token_symbol}: current={current_allowance}, required={required_amount}"
+                    )
 
-            if current_allowance < required_amount:
-                self.logger().info(f"Insufficient allowance for {token_symbol}. Approving {required_amount}...")
+                if current_allowance < required_amount:
+                    # ⏱️ TIMING: Approval Transaction
+                    with timing_context(f"ALLOWANCE_APPROVAL_{token_symbol}", self.logger()):
+                        self.logger().info(f"Insufficient allowance for {token_symbol}. Approving {required_amount}...")
 
-                # Use direct Web3 contract call to approve tokens
-                if not self._private_key:
-                    raise ValueError("Wallet private key not available for token approval")
+                        # Use direct Web3 contract call to approve tokens
+                        if not self._private_key:
+                            raise ValueError("Wallet private key not available for token approval")
 
-                # Approve a large amount to avoid frequent approvals (e.g., max uint256)
-                max_approval = 2**256 - 1  # Max uint256
+                        # Approve a large amount to avoid frequent approvals (e.g., max uint256)
+                        max_approval = 2**256 - 1  # Max uint256
 
-                self.logger().info(f"Approving {token_symbol} with amount: {max_approval}")
+                        self.logger().info(f"Approving {token_symbol} with amount: {max_approval}")
 
-                # Build the approval transaction
-                approve_function = contract.functions.approve(exchange_checksum, max_approval)
+                        # Build the approval transaction
+                        approve_function = contract.functions.approve(exchange_checksum, max_approval)
 
-                # Get gas estimate
-                try:
-                    gas_estimate = approve_function.estimate_gas({"from": wallet_address})
-                    gas_limit = int(gas_estimate * 1.2)  # Add 20% buffer
-                except Exception as e:
-                    self.logger().warning(f"Could not estimate gas for approval: {e}, using default")
-                    gas_limit = 100000  # Default gas limit for ERC20 approval
+                        # Get gas estimate
+                        try:
+                            gas_estimate = approve_function.estimate_gas({"from": wallet_address})
+                            gas_limit = int(gas_estimate * 1.2)  # Add 20% buffer
+                        except Exception as e:
+                            self.logger().warning(f"Could not estimate gas for approval: {e}, using default")
+                            gas_limit = 100000  # Default gas limit for ERC20 approval
 
-                # Get current nonce
-                nonce = w3.eth.get_transaction_count(wallet_address, "pending")
+                        # Get current nonce
+                        nonce = w3.eth.get_transaction_count(wallet_address, "pending")
 
-                # Build transaction
-                transaction = approve_function.build_transaction(
-                    {
-                        "from": wallet_address,
-                        "gas": gas_limit,
-                        "gasPrice": w3.eth.gas_price,
-                        "nonce": nonce,
-                    }
-                )
+                        # Build transaction
+                        transaction = approve_function.build_transaction(
+                            {
+                                "from": wallet_address,
+                                "gas": gas_limit,
+                                "gasPrice": w3.eth.gas_price,
+                                "nonce": nonce,
+                            }
+                        )
 
-                # Sign transaction
-                from eth_account import Account
+                        # Sign transaction
+                        from eth_account import Account
 
-                signed_txn = Account.sign_transaction(transaction, self._private_key)
+                        signed_txn = Account.sign_transaction(transaction, self._private_key)
 
-                # Send transaction
-                tx_hash = w3.eth.send_raw_transaction(signed_txn.raw_transaction)
-                tx_hash_hex = tx_hash.hex()
+                        # Send transaction
+                        tx_hash = w3.eth.send_raw_transaction(signed_txn.raw_transaction)
+                        tx_hash_hex = tx_hash.hex()
 
-                self.logger().info(f"Approval transaction submitted: {tx_hash_hex}")
+                        self.logger().info(f"Approval transaction submitted: {tx_hash_hex}")
 
-                # Wait for transaction confirmation
-                import asyncio
+                        # ⏱️ TIMING: Approval Confirmation Wait
+                        with timing_context(f"ALLOWANCE_CONFIRM_{token_symbol}", self.logger()):
+                            # Wait for transaction confirmation
+                            import asyncio
 
-                receipt = None
-                for i in range(30):  # Wait up to 30 seconds
-                    try:
-                        receipt = w3.eth.get_transaction_receipt(tx_hash)
-                        if receipt:
-                            break
-                    except Exception:
-                        pass
-                    await asyncio.sleep(1)
+                            receipt = None
+                            for i in range(30):  # Wait up to 30 seconds
+                                try:
+                                    receipt = w3.eth.get_transaction_receipt(tx_hash)
+                                    if receipt:
+                                        break
+                                except Exception:
+                                    pass
+                                await asyncio.sleep(1)
 
-                if receipt and receipt.status == 1:
-                    self.logger().info(f"Approval transaction confirmed: {tx_hash_hex}")
+                            if receipt and receipt.status == 1:
+                                self.logger().info(f"Approval transaction confirmed: {tx_hash_hex}")
 
-                    # Check the new allowance
-                    new_allowance = contract.functions.allowance(wallet_address, exchange_checksum).call()
-                    self.logger().info(f"New allowance for {token_symbol}: {new_allowance}")
+                                # Check the new allowance
+                                new_allowance = contract.functions.allowance(wallet_address, exchange_checksum).call()
+                                self.logger().info(f"New allowance for {token_symbol}: {new_allowance}")
 
-                    if new_allowance < required_amount:
-                        raise ValueError(f"Approval failed - still insufficient allowance for {token_symbol}")
+                                if new_allowance < required_amount:
+                                    raise ValueError(f"Approval failed - still insufficient allowance for {token_symbol}")
+                            else:
+                                raise ValueError(f"Approval transaction failed or not confirmed: {tx_hash_hex}")
                 else:
-                    raise ValueError(f"Approval transaction failed or not confirmed: {tx_hash_hex}")
-            else:
-                self.logger().info(f"Sufficient allowance for {token_symbol}: {current_allowance} >= {required_amount}")
+                    self.logger().info(f"Sufficient allowance for {token_symbol}: {current_allowance} >= {required_amount}")
 
-        except Exception as e:
-            self.logger().error(f"Error checking/ensuring token allowances: {e}")
-            raise
+            except Exception as e:
+                self.logger().error(f"Error checking/ensuring token allowances: {e}")
+                raise
 
     async def _check_sufficient_balance(
         self, base_address: str, quote_address: str, amount: Decimal, price: Decimal, is_buy: bool
@@ -2186,125 +2283,174 @@ class StandardExchange(ExchangePyBase):
         Returns:
             Tuple of (exchange_order_id, timestamp)
         """
-        try:
-            self.logger().info("DEBUG: _place_order called with:")
-            self.logger().info(f"  - order_id: {order_id}")
-            self.logger().info(f"  - trading_pair: {trading_pair}")
-            self.logger().info(f"  - amount: {amount}")
-            self.logger().info(f"  - trade_type: {trade_type}")
-            self.logger().info(f"  - order_type: {order_type}")
-            self.logger().info(f"  - price: {price}")
+        # ⏱️ START OVERALL TIMING
+        overall_start_time = time.time()
 
-            # Update balances before placing order to ensure budget checker has fresh data
-            self.logger().info("Updating balances before order placement...")
-            await self._update_balances()
-
-            base, quote = utils.split_trading_pair(trading_pair)
-            base_address = utils.convert_symbol_to_address(base, self._domain)
-            quote_address = utils.convert_symbol_to_address(quote, self._domain)
-
-            if not base_address or not quote_address:
-                raise ValueError(f"Could not get token addresses for {trading_pair}")
-
-            # Determine if this is a buy order
-            is_buy = trade_type == TradeType.BUY
-
-            # Convert amounts to blockchain format
-            base_decimals = utils.get_token_decimals(base)
-            quote_decimals = utils.get_token_decimals(quote)
-
-            # Check and ensure token allowances before placing order
-            await self._ensure_token_allowances(base_address, quote_address, amount, price, is_buy)
-
-            # Check token balances before placing order
-            await self._check_sufficient_balance(base_address, quote_address, amount, price, is_buy)
-
-            if order_type == OrderType.MARKET:
-                # For market orders, we'll place a limit order at a price that should execute immediately
-                # Use configurable slippage - default 0.3% for arbitrage strategies
-                market_slippage = Decimal("0.003")  # 0.3% default - much better for arbitrage
-
-                if is_buy:
-                    # Buy at a higher price to ensure execution
-                    execution_price = price * (Decimal("1") + market_slippage)
-                    self.logger().info(f"🔥 MARKET BUY: {amount} {base} at {execution_price} ({market_slippage * 100}% slippage)")
-                else:
-                    # Sell at a lower price to ensure execution
-                    execution_price = price * (Decimal("1") - market_slippage)
-                    self.logger().info(f"🔥 MARKET SELL: {amount} {base} at {execution_price} ({market_slippage * 100}% slippage)")
-            else:
-                execution_price = price
-
-            # Use transaction lock to prevent nonce conflicts between multiple orders
-            async with self._transaction_lock:
-                # Get current nonce for the account to avoid "nonce too low" errors
-                current_nonce = await self._get_current_nonce()
-
-                self.logger().info("DEBUG: About to call _place_order_direct_contract with:")
-                self.logger().info(f"  - is_buy: {is_buy}")
-                self.logger().info(f"  - base: {base} -> {base_address}")
-                self.logger().info(f"  - quote: {quote} -> {quote_address}")
+        with timing_context(f"PLACE_ORDER_TOTAL ({order_id})", self.logger()):
+            try:
+                self.logger().info("DEBUG: _place_order called with:")
+                self.logger().info(f"  - order_id: {order_id}")
+                self.logger().info(f"  - trading_pair: {trading_pair}")
                 self.logger().info(f"  - amount: {amount}")
-                self.logger().info(f"  - execution_price: {execution_price}")
+                self.logger().info(f"  - trade_type: {trade_type}")
+                self.logger().info(f"  - order_type: {order_type}")
+                self.logger().info(f"  - price: {price}")
 
-                # ===== APPROACH SELECTION =====
-                # NEW: Use StandardWeb3 0.0.10 with fallback to direct contract method
-                # This provides order IDs when StandardWeb3 works, with reliable fallback
+                # ⏱️ TIMING: Balance Update
+                with timing_context(f"UPDATE_BALANCES ({order_id})", self.logger()):
+                    self.logger().info("Updating balances before order placement...")
+                    await self._update_balances()
 
-                self.logger().info("🔄 Trying StandardWeb3 0.0.10 for order placement...")
+                # ⏱️ TIMING: Address Resolution
+                with timing_context(f"ADDRESS_RESOLUTION ({order_id})", self.logger()):
+                    base, quote = utils.split_trading_pair(trading_pair)
+                    base_address = utils.convert_symbol_to_address(base, self._domain)
+                    quote_address = utils.convert_symbol_to_address(quote, self._domain)
 
-                try:
-                    # Create InFlightOrder for StandardWeb3 method
-                    temp_order = InFlightOrder(
-                        client_order_id=order_id,
-                        trading_pair=trading_pair,
-                        order_type=order_type,
-                        trade_type=trade_type,
-                        amount=amount,
-                        price=execution_price,
-                        creation_timestamp=time.time()
-                    )
+                    if not base_address or not quote_address:
+                        raise ValueError(f"Could not get token addresses for {trading_pair}")
 
-                    # Place order via StandardWeb3 and get both tx_hash and order_id
-                    tx_hash, blockchain_order_id = await self._place_order_with_standardweb3(temp_order)
+                    # Determine if this is a buy order
+                    is_buy = trade_type == TradeType.BUY
 
-                    # Store the blockchain order ID for cancellation (this is the key improvement!)
-                    self.logger().info(f"📝 Storing blockchain order ID {blockchain_order_id} for order {order_id}")
+                    # Convert amounts to blockchain format
+                    base_decimals = utils.get_token_decimals(base)
+                    quote_decimals = utils.get_token_decimals(quote)
 
-                    # We'll store this in the tracked order's exchange_order_id as a combined identifier
-                    # Format: "tx_hash:order_id" so we can extract both later
-                    result = f"{tx_hash}:{blockchain_order_id}"
+                # ⏱️ TIMING: Token Allowances
+                with timing_context(f"ENSURE_ALLOWANCES ({order_id})", self.logger()):
+                    await self._ensure_token_allowances(base_address, quote_address, amount, price, is_buy)
 
-                except Exception as e:
-                    if "parsing bug" in str(e) or "base" in str(e):
-                        self.logger().warning(f"🔄 StandardWeb3 failed ({e}), falling back to direct contract method...")
+                # ⏱️ TIMING: Balance Check
+                with timing_context(f"BALANCE_CHECK ({order_id})", self.logger()):
+                    await self._check_sufficient_balance(base_address, quote_address, amount, price, is_buy)
 
-                        # Fallback to direct contract method
-                        result, _ = await self._place_order_direct_contract(
-                            order_id, trading_pair, amount, trade_type, order_type, execution_price, is_buy,
-                            base, base_address, quote, quote_address, base_decimals, quote_decimals
-                        )
+                # ⏱️ TIMING: Price Calculation
+                with timing_context(f"PRICE_CALCULATION ({order_id})", self.logger()):
+                    if order_type == OrderType.MARKET:
+                        # For market orders, we'll place a limit order at a price that should execute immediately
+                        # Use configurable slippage - default 0.3% for arbitrage strategies
+                        market_slippage = Decimal("0.003")  # 0.3% default - much better for arbitrage
+
+                        if is_buy:
+                            # Buy at a higher price to ensure execution
+                            execution_price = price * (Decimal("1") + market_slippage)
+                            self.logger().info(f"🔥 MARKET BUY: {amount} {base} at {execution_price} ({market_slippage * 100}% slippage)")
+                        else:
+                            # Sell at a lower price to ensure execution
+                            execution_price = price * (Decimal("1") - market_slippage)
+                            self.logger().info(f"🔥 MARKET SELL: {amount} {base} at {execution_price} ({market_slippage * 100}% slippage)")
                     else:
-                        # Other errors should be propagated
-                        raise
+                        execution_price = price
 
-            # Handle return value - could be tuple (tx_hash, timestamp) or just tx_hash
-            if isinstance(result, tuple) and len(result) == 2:
-                tx_hash, _ = result  # Extract just the tx_hash
-            else:
-                tx_hash = result  # Already just tx_hash
+                # ⏱️ TIMING: Blockchain Transaction
+                with timing_context(f"BLOCKCHAIN_TRANSACTION ({order_id})", self.logger()):
+                    # Use transaction lock to prevent nonce conflicts between multiple orders
+                    async with self._transaction_lock:
+                        # ⏱️ TIMING: Nonce Management
+                        with timing_context(f"GET_NONCE ({order_id})", self.logger()):
+                            current_nonce = await self._get_current_nonce()
 
-            self.logger().info(f"Order placed successfully: {order_id} -> {tx_hash}")
+                        self.logger().info("DEBUG: About to call _place_order_direct_contract with:")
+                        self.logger().info(f"  - is_buy: {is_buy}")
+                        self.logger().info(f"  - base: {base} -> {base_address}")
+                        self.logger().info(f"  - quote: {quote} -> {quote_address}")
+                        self.logger().info(f"  - amount: {amount}")
+                        self.logger().info(f"  - execution_price: {execution_price}")
 
-            # Return transaction hash as exchange order ID (following standard connector pattern)
-            timestamp = time.time()
-            return tx_hash, timestamp
+                        # ⏱️ TIMING: StandardWeb3 Method
+                        self.logger().info("🔄 Trying StandardWeb3 0.0.10 for order placement...")
 
-        except Exception as e:
-            # Simple error handling following ORDER_FAILURE_HANDLING.md pattern:
-            # Just log and re-raise - let ExchangePyBase._create_order handle the rest
-            self.logger().error(f"Error placing order {order_id}: {e}")
-            raise
+                        try:
+                            with timing_context(f"STANDARDWEB3_PLACEMENT ({order_id})", self.logger()):
+                                # Create InFlightOrder for StandardWeb3 method
+                                temp_order = InFlightOrder(
+                                    client_order_id=order_id,
+                                    trading_pair=trading_pair,
+                                    order_type=order_type,
+                                    trade_type=trade_type,
+                                    amount=amount,
+                                    price=execution_price,
+                                    creation_timestamp=time.time()
+                                )
+
+                                # Place order via StandardWeb3 and get both tx_hash and order_id
+                                tx_hash, blockchain_order_id = await self._place_order_with_standardweb3(temp_order)
+
+                                # Store the blockchain order ID for cancellation (this is the key improvement!)
+                                self.logger().info(f"📝 Storing blockchain order ID {blockchain_order_id} for order {order_id}")
+
+                                # We'll store this in the tracked order's exchange_order_id as a combined identifier
+                                # Format: "tx_hash:order_id" so we can extract both later
+                                result = f"{tx_hash}:{blockchain_order_id}"
+
+                        except Exception as e:
+                            if "parsing bug" in str(e) or "base" in str(e):
+                                self.logger().warning(f"🔄 StandardWeb3 failed ({e}), falling back to direct contract method...")
+
+                                # ⏱️ TIMING: Direct Contract Fallback
+                                with timing_context(f"DIRECT_CONTRACT_FALLBACK ({order_id})", self.logger()):
+                                    result, _ = await self._place_order_direct_contract(
+                                        order_id, trading_pair, amount, trade_type, order_type, execution_price, is_buy,
+                                        base, base_address, quote, quote_address, base_decimals, quote_decimals
+                                    )
+                            else:
+                                # Other errors should be propagated
+                                raise
+
+                # Handle return value - could be tuple (tx_hash, timestamp) or just tx_hash
+                if isinstance(result, tuple) and len(result) == 2:
+                    tx_hash, _ = result  # Extract just the tx_hash
+                else:
+                    tx_hash = result  # Already just tx_hash
+
+                self.logger().info(f"Order placed successfully: {order_id} -> {tx_hash}")
+
+                # ⏱️ RECORD OVERALL PERFORMANCE
+                overall_duration_ms = (time.time() - overall_start_time) * 1000
+                self._performance_tracker.record_operation(
+                    "place_order_total",
+                    overall_duration_ms,
+                    {
+                        "order_id": order_id,
+                        "trading_pair": trading_pair,
+                        "trade_type": str(trade_type),
+                        "order_type": str(order_type),
+                        "amount": str(amount),
+                        "price": str(price)
+                    }
+                )
+
+                self.logger().info(f"⏱️ PLACE ORDER PERFORMANCE: {order_id} took {overall_duration_ms:.2f}ms total")
+
+                # ⏱️ PERIODIC PERFORMANCE LOGGING
+                current_time = time.time()
+                if current_time - self._last_performance_log > self._performance_log_interval:
+                    self._last_performance_log = current_time
+                    self.logger().info("⏱️ PERIODIC PERFORMANCE CHECK:")
+                    self.log_performance_summary()
+
+                # Return transaction hash as exchange order ID (following standard connector pattern)
+                timestamp = time.time()
+                return tx_hash, timestamp
+
+            except Exception as e:
+                # ⏱️ RECORD FAILURE PERFORMANCE
+                overall_duration_ms = (time.time() - overall_start_time) * 1000
+                self._performance_tracker.record_operation(
+                    "place_order_failed",
+                    overall_duration_ms,
+                    {
+                        "order_id": order_id,
+                        "error": str(e),
+                        "trading_pair": trading_pair
+                    }
+                )
+
+                # Simple error handling following ORDER_FAILURE_HANDLING.md pattern:
+                # Just log and re-raise - let ExchangePyBase._create_order handle the rest
+                self.logger().error(f"Error placing order {order_id}: {e}")
+                raise
 
     # 🚀 PHASE 2: Override _place_order_and_process_update for blockchain transaction tracking
     async def _place_order_and_process_update(self, order: InFlightOrder, **kwargs) -> str:
@@ -3719,89 +3865,91 @@ class StandardExchange(ExchangePyBase):
         Update account balances using on-chain Web3 calls with API fallback.
         This method is called by the balance command to fetch current balances.
         """
-        try:
-            self.logger().info("=== Starting balance update ===")
+        # ⏱️ BALANCE UPDATE TIMING
+        with timing_context("BALANCE_UPDATE_TOTAL", self.logger()):
+            try:
+                self.logger().info("=== Starting balance update ===")
 
-            if not self._standard_client:
-                self.logger().error("StandardWeb3 client not available - cannot fetch balances")
-                return
+                if not self._standard_client:
+                    self.logger().error("StandardWeb3 client not available - cannot fetch balances")
+                    return
 
-            # Get all relevant tokens including native token
-            tokens = set()
+                # Get all relevant tokens including native token
+                tokens = set()
 
-            if not self._trading_pairs:
-                # For balance command or non-trading mode, use default tokens
-                self.logger().info("No trading pairs configured - using default tokens for balance check")
-                tokens = CONSTANTS.DEFAULT_TOKENS.copy()
-                self.logger().info("Using default tokens for balance check: {tokens}")
-            else:
-                for trading_pair in self._trading_pairs:
-                    base, quote = utils.split_trading_pair(trading_pair)
-                    self.logger().debug(f"Split {trading_pair} -> base: {base}, quote: {quote}")
-                    tokens.add(base)
-                    tokens.add(quote)
+                if not self._trading_pairs:
+                    # For balance command or non-trading mode, use default tokens
+                    self.logger().info("No trading pairs configured - using default tokens for balance check")
+                    tokens = CONSTANTS.DEFAULT_TOKENS.copy()
+                    self.logger().info("Using default tokens for balance check: {tokens}")
+                else:
+                    for trading_pair in self._trading_pairs:
+                        base, quote = utils.split_trading_pair(trading_pair)
+                        self.logger().debug(f"Split {trading_pair} -> base: {base}, quote: {quote}")
+                        tokens.add(base)
+                        tokens.add(quote)
 
-                # Always include native token for trading mode based on current domain
-                if self._trading_required:
-                    native_token = CONSTANTS.NATIVE_TOKEN
-                    tokens.add(native_token)
-                    self.logger().debug(f"Added native token for {self._domain}: {native_token}")
+                    # Always include native token for trading mode based on current domain
+                    if self._trading_required:
+                        native_token = CONSTANTS.NATIVE_TOKEN
+                        tokens.add(native_token)
+                        self.logger().debug(f"Added native token for {self._domain}: {native_token}")
 
-            self.logger().info(f"Fetching balances for tokens: {sorted(tokens)}")
+                self.logger().info(f"Fetching balances for tokens: {sorted(tokens)}")
 
-            # Fetch balances using Web3 (primary method)
-            balances = {}
-            successful_fetches = 0
-            failed_fetches = 0
+                # Fetch balances using Web3 (primary method)
+                balances = {}
+                successful_fetches = 0
+                failed_fetches = 0
 
-            for token in sorted(tokens):
-                try:
-                    self.logger().debug(f"Fetching balance for {token}...")
-                    balance = await self._get_token_balance_web3(token)
-                    balances[token] = balance
-                    successful_fetches += 1
-
-                    # Show balance with appropriate formatting
-                    if balance > Decimal("0"):
-                        self.logger().info(f"✓ {token}: {balance}")
-                    else:
-                        self.logger().debug(f"✓ {token}: {balance} (zero balance)")
-
-                except Exception as e:
-                    self.logger().warning(f"✗ Web3 balance failed for {token}: {e}")
-                    failed_fetches += 1
-
+                for token in sorted(tokens):
                     try:
-                        self.logger().debug(f"Trying API fallback for {token}...")
-                        balance = await self._get_token_balance_api(token)
+                        self.logger().debug(f"Fetching balance for {token}...")
+                        balance = await self._get_token_balance_web3(token)
                         balances[token] = balance
-                        self.logger().info(f"✓ {token}: {balance} (via API)")
-                    except Exception as api_error:
-                        self.logger().error(f"✗ Both Web3 and API balance failed for {token}: {api_error}")
-                        balances[token] = s_decimal_0
+                        successful_fetches += 1
 
-            # Update local balances
-            self._account_balances = balances
-            self._account_available_balances = balances.copy()
+                        # Show balance with appropriate formatting
+                        if balance > Decimal("0"):
+                            self.logger().info(f"✓ {token}: {balance}")
+                        else:
+                            self.logger().debug(f"✓ {token}: {balance} (zero balance)")
 
-            # Summary
-            total_tokens = len(tokens)
-            self.logger().info(f"=== Balance update completed ===")
-            self.logger().info(f"Successfully fetched: {successful_fetches}/{total_tokens} tokens")
-            if failed_fetches > 0:
-                self.logger().warning(f"Failed to fetch: {failed_fetches}/{total_tokens} tokens")
+                    except Exception as e:
+                        self.logger().warning(f"✗ Web3 balance failed for {token}: {e}")
+                        failed_fetches += 1
 
-            # Log non-zero balances for user visibility
-            non_zero_balances = {token: balance for token, balance in balances.items() if balance > s_decimal_0}
-            if non_zero_balances:
-                self.logger().info(f"Non-zero balances: {non_zero_balances}")
-            else:
-                self.logger().info("All balances are zero")
+                        try:
+                            self.logger().debug(f"Trying API fallback for {token}...")
+                            balance = await self._get_token_balance_api(token)
+                            balances[token] = balance
+                            self.logger().info(f"✓ {token}: {balance} (via API)")
+                        except Exception as api_error:
+                            self.logger().error(f"✗ Both Web3 and API balance failed for {token}: {api_error}")
+                            balances[token] = s_decimal_0
 
-        except Exception as e:
-            self.logger().error(f"Critical error updating balances: {e}")
-            self.logger().exception("Full error details:")
-            # Don't raise - let the system continue with existing balances
+                # Update local balances
+                self._account_balances = balances
+                self._account_available_balances = balances.copy()
+
+                # Summary
+                total_tokens = len(tokens)
+                self.logger().info(f"=== Balance update completed ===")
+                self.logger().info(f"Successfully fetched: {successful_fetches}/{total_tokens} tokens")
+                if failed_fetches > 0:
+                    self.logger().warning(f"Failed to fetch: {failed_fetches}/{total_tokens} tokens")
+
+                # Log non-zero balances for user visibility
+                non_zero_balances = {token: balance for token, balance in balances.items() if balance > s_decimal_0}
+                if non_zero_balances:
+                    self.logger().info(f"Non-zero balances: {non_zero_balances}")
+                else:
+                    self.logger().info("All balances are zero")
+
+            except Exception as e:
+                self.logger().error(f"Critical error updating balances: {e}")
+                self.logger().exception("Full error details:")
+                # Don't raise - let the system continue with existing balances
 
     async def _get_token_balance_web3(self, token: str) -> Decimal:
         """
@@ -3813,78 +3961,82 @@ class StandardExchange(ExchangePyBase):
         Returns:
             Token balance as Decimal
         """
-        try:
-            # Use direct Web3 connection to Somnia RPC instead of StandardClient
-            from web3 import Web3
-
-            # Create Web3 instance with Somnia RPC from domain config
-            rpc_url = CONSTANTS.DOMAIN_CONFIG[self._domain]["rpc_url"]
-            w3 = Web3(Web3.HTTPProvider(rpc_url))
-
-            if not w3.is_connected():
-                self.logger().error("Failed to connect to Somnia RPC")
-                return s_decimal_0
-
-            # Use the wallet address and convert to checksum format
-            wallet_address = w3.to_checksum_address(self._wallet_address)
-
-            self.logger().debug(f"Getting balance for {token} at address {wallet_address}")
-            self.logger().debug(f"wallet_address type: {type(wallet_address)}")
-
-            if token.upper() in CONSTANTS.NATIVE_TOKEN_LIST:
-                # For other native tokens
-                balance_wei = w3.eth.get_balance(wallet_address)
-                balance = w3.from_wei(balance_wei, "ether")
-                balance_decimal = Decimal(str(balance))
-                self.logger().debug(f"Native {token} balance: {balance_decimal}")
-                return balance_decimal
-
-            token_address = utils.convert_symbol_to_address(token, self._domain)
-            if not token_address or token_address == "0x...":
-                self.logger().warning(f"Token address not found or incomplete for {token}")
-                return s_decimal_0
-
-            self.logger().debug(f"Getting ERC-20 balance for {token} at contract {token_address}")
-
-            # Standard ERC-20 balanceOf call
-            erc20_abi = [
-                {
-                    "constant": True,
-                    "inputs": [{"name": "_owner", "type": "address"}],
-                    "name": "balanceOf",
-                    "outputs": [{"name": "balance", "type": "uint256"}],
-                    "type": "function",
-                },
-                {
-                    "constant": True,
-                    "inputs": [],
-                    "name": "decimals",
-                    "outputs": [{"name": "", "type": "uint8"}],
-                    "type": "function",
-                },
-            ]
-
-            # Create contract instance with proper checksum addresses
-            contract = w3.eth.contract(address=w3.to_checksum_address(token_address), abi=erc20_abi)
-
-            # Get balance using Web3.to_checksum_address for safety
-            balance_wei = contract.functions.balanceOf(w3.to_checksum_address(wallet_address)).call()
-
-            # Get token decimals
+        # ⏱️ INDIVIDUAL TOKEN BALANCE TIMING
+        with timing_context(f"WEB3_BALANCE_{token}", self.logger()):
             try:
-                decimals = contract.functions.decimals().call()
-            except Exception:
-                # Default to 18 decimals if decimals() call fails
-                decimals = 18
+                # ⏱️ TIMING: Web3 Connection
+                with timing_context(f"WEB3_CONNECT_{token}", self.logger()):
+                    # Use direct Web3 connection to Somnia RPC instead of StandardClient
+                    from web3 import Web3
 
-            # Convert to human readable format
-            balance = Decimal(balance_wei) / Decimal(10**decimals)
-            self.logger().debug(f"ERC-20 {token} balance: {balance} (decimals: {decimals})")
-            return balance
+                    # Create Web3 instance with Somnia RPC from domain config
+                    rpc_url = CONSTANTS.DOMAIN_CONFIG[self._domain]["rpc_url"]
+                    w3 = Web3(Web3.HTTPProvider(rpc_url))
 
-        except Exception as e:
-            self.logger().error(f"Web3 balance error for {token}: {e}")
-            raise
+                    if not w3.is_connected():
+                        self.logger().error("Failed to connect to Somnia RPC")
+                        return s_decimal_0
+
+                    # Use the wallet address and convert to checksum format
+                    wallet_address = w3.to_checksum_address(self._wallet_address)
+
+                self.logger().debug(f"Getting balance for {token} at address {wallet_address}")
+                self.logger().debug(f"wallet_address type: {type(wallet_address)}")
+
+                if token.upper() in CONSTANTS.NATIVE_TOKEN_LIST:
+                    # For other native tokens
+                    balance_wei = w3.eth.get_balance(wallet_address)
+                    balance = w3.from_wei(balance_wei, "ether")
+                    balance_decimal = Decimal(str(balance))
+                    self.logger().debug(f"Native {token} balance: {balance_decimal}")
+                    return balance_decimal
+
+                token_address = utils.convert_symbol_to_address(token, self._domain)
+                if not token_address or token_address == "0x...":
+                    self.logger().warning(f"Token address not found or incomplete for {token}")
+                    return s_decimal_0
+
+                self.logger().debug(f"Getting ERC-20 balance for {token} at contract {token_address}")
+
+                # Standard ERC-20 balanceOf call
+                erc20_abi = [
+                    {
+                        "constant": True,
+                        "inputs": [{"name": "_owner", "type": "address"}],
+                        "name": "balanceOf",
+                        "outputs": [{"name": "balance", "type": "uint256"}],
+                        "type": "function",
+                    },
+                    {
+                        "constant": True,
+                        "inputs": [],
+                        "name": "decimals",
+                        "outputs": [{"name": "", "type": "uint8"}],
+                        "type": "function",
+                    },
+                ]
+
+                # Create contract instance with proper checksum addresses
+                contract = w3.eth.contract(address=w3.to_checksum_address(token_address), abi=erc20_abi)
+
+                # Get balance using Web3.to_checksum_address for safety
+                balance_wei = contract.functions.balanceOf(w3.to_checksum_address(wallet_address)).call()
+
+                # Get token decimals
+                try:
+                    decimals = contract.functions.decimals().call()
+                except Exception:
+                    # Default to 18 decimals if decimals() call fails
+                    decimals = 18
+
+                # Convert to human readable format
+                balance = Decimal(balance_wei) / Decimal(10**decimals)
+                self.logger().debug(f"ERC-20 {token} balance: {balance} (decimals: {decimals})")
+                return balance
+
+            except Exception as e:
+                self.logger().error(f"Web3 balance error for {token}: {e}")
+                raise
 
     async def _get_token_balance_api(self, token: str) -> Decimal:
         """
@@ -4820,3 +4972,133 @@ class StandardExchange(ExchangePyBase):
         except Exception as e:
             self.logger().error(f"Error getting cancellation metrics: {e}")
             return {"error": str(e)}
+
+    # ⏱️ PERFORMANCE REPORTING METHODS
+
+    def get_performance_summary(self) -> Dict:
+        """Get comprehensive performance summary for order operations."""
+        try:
+            if not hasattr(self, "_performance_tracker"):
+                return {"message": "Performance tracking not initialized"}
+
+            summary = self._performance_tracker.get_summary()
+
+            # Add formatted summary for easy reading
+            formatted_summary = {
+                "overall_stats": {
+                    "total_operations": summary["total_operations"],
+                    "tracked_operation_types": len(summary["metrics"])
+                },
+                "operation_breakdown": {}
+            }
+
+            # Format each operation type
+            for op_name, metrics in summary["metrics"].items():
+                formatted_summary["operation_breakdown"][op_name] = {
+                    "count": metrics["count"],
+                    "avg_time_ms": round(metrics["avg_time"], 2),
+                    "min_time_ms": round(metrics["min_time"], 2),
+                    "max_time_ms": round(metrics["max_time"], 2),
+                    "total_time_ms": round(metrics["total_time"], 2),
+                    "recent_avg_ms": round(sum(metrics["recent_times"]) / len(metrics["recent_times"]), 2) if metrics["recent_times"] else 0
+                }
+
+            # Add slow operations
+            if summary["slow_operations"]:
+                formatted_summary["slow_operations"] = [
+                    {
+                        "operation": op["operation"],
+                        "duration_ms": round(op["duration_ms"], 2),
+                        "timestamp": op["timestamp"].strftime("%H:%M:%S"),
+                        "details": op.get("details", {})
+                    }
+                    for op in summary["slow_operations"]
+                ]
+
+            return formatted_summary
+
+        except Exception as e:
+            self.logger().error(f"Error generating performance summary: {e}")
+            return {"error": str(e)}
+
+    def log_performance_summary(self):
+        """Log a formatted performance summary to the console."""
+        try:
+            summary = self.get_performance_summary()
+
+            self.logger().info("⏱️ ====== PERFORMANCE SUMMARY ======")
+
+            if "error" in summary:
+                self.logger().error(f"Performance tracking error: {summary['error']}")
+                return
+
+            if "message" in summary:
+                self.logger().info(f"Status: {summary['message']}")
+                return
+
+            # Overall stats
+            overall = summary["overall_stats"]
+            self.logger().info(f"Total Operations: {overall['total_operations']}")
+            self.logger().info(f"Operation Types: {overall['tracked_operation_types']}")
+
+            # Breakdown by operation
+            self.logger().info("⏱️ OPERATION BREAKDOWN:")
+            for op_name, metrics in summary["operation_breakdown"].items():
+                self.logger().info(
+                    f"  {op_name}: "
+                    f"Count={metrics['count']}, "
+                    f"Avg={metrics['avg_time_ms']}ms, "
+                    f"Min={metrics['min_time_ms']}ms, "
+                    f"Max={metrics['max_time_ms']}ms, "
+                    f"Recent={metrics['recent_avg_ms']}ms"
+                )
+
+            # Slow operations warning
+            if "slow_operations" in summary and summary["slow_operations"]:
+                self.logger().warning("⏱️ RECENT SLOW OPERATIONS (>500ms):")
+                for slow_op in summary["slow_operations"]:
+                    self.logger().warning(
+                        f"  {slow_op['timestamp']} - {slow_op['operation']}: "
+                        f"{slow_op['duration_ms']}ms"
+                    )
+
+            # Performance insights
+            breakdown = summary["operation_breakdown"]
+            if "place_order_total" in breakdown:
+                order_metrics = breakdown["place_order_total"]
+                if order_metrics["avg_time_ms"] > 1000:
+                    self.logger().warning(
+                        f"⚠️  Average order placement time is {order_metrics['avg_time_ms']}ms "
+                        f"(>{1000}ms threshold). Consider optimizing."
+                    )
+                elif order_metrics["avg_time_ms"] > 500:
+                    self.logger().info(
+                        f"ℹ️  Average order placement time is {order_metrics['avg_time_ms']}ms "
+                        f"(moderate performance)."
+                    )
+                else:
+                    self.logger().info(
+                        f"✅ Average order placement time is {order_metrics['avg_time_ms']}ms "
+                        f"(good performance)."
+                    )
+
+            self.logger().info("⏱️ ====== END PERFORMANCE SUMMARY ======")
+
+        except Exception as e:
+            self.logger().error(f"Error logging performance summary: {e}")
+
+    def reset_performance_tracking(self):
+        """Reset performance tracking metrics."""
+        try:
+            if hasattr(self, "_performance_tracker"):
+                self._performance_tracker = PerformanceTracker()
+                self.logger().info("⏱️ Performance tracking metrics reset")
+            else:
+                self.logger().warning("⏱️ Performance tracker not initialized")
+        except Exception as e:
+            self.logger().error(f"Error resetting performance tracking: {e}")
+
+    def performance_report(self):
+        """Public method to trigger performance report - can be called from command line."""
+        self.log_performance_summary()
+        return self.get_performance_summary()
