@@ -3296,7 +3296,7 @@ class StandardExchange(ExchangePyBase):
                         price=price_wei,
                         quote_amount=quote_amount_wei,
                         is_maker=True,
-                        n=20,
+                        n=MAX_ORDERS_TO_MATCH,
                         recipient=recipient
                     )
                     self.logger().info(f"✅ Used limit_buy successfully")
@@ -3311,7 +3311,7 @@ class StandardExchange(ExchangePyBase):
                         quote=quote_address,
                         price=price_wei,
                         is_maker=True,
-                        n=20,
+                        n=MAX_ORDERS_TO_MATCH,
                         recipient=recipient,
                         eth_amount=eth_amount_wei
                     )
@@ -3328,7 +3328,7 @@ class StandardExchange(ExchangePyBase):
                         price=price_wei,
                         base_amount=base_amount_wei,
                         is_maker=True,
-                        n=20,
+                        n=MAX_ORDERS_TO_MATCH,
                         recipient=recipient
                     )
                     self.logger().info(f"✅ Used limit_sell successfully")
