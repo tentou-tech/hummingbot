@@ -3278,7 +3278,7 @@ class StandardExchange(ExchangePyBase):
                         base=base_address,
                         price=price_wei,
                         is_maker=True,
-                        n=20,
+                        n=CONSTANTS.MAX_ORDERS_TO_MATCH,
                         recipient=recipient,
                         eth_amount=eth_amount_wei
                     )
@@ -3470,6 +3470,36 @@ class StandardExchange(ExchangePyBase):
         loop = asyncio.get_event_loop()
         return await loop.run_in_executor(None, func, *args)
 
+    def _get_contract_instance(self):
+        """
+        Get Web3 contract instance for the matching engine.
+        This helper function avoids code duplication across methods.
+
+        Returns:
+            Tuple of (web3_instance, contract_instance)
+        """
+        try:
+            import json
+            import os
+
+            from web3 import Web3
+
+            # Load contract ABI
+            abi_path = os.path.join(os.path.dirname(__file__), "lib", "matching_engine_abi.json")
+            with open(abi_path, "r") as f:
+                matching_engine_abi = json.load(f)
+
+            # Connect to blockchain
+            w3 = Web3(Web3.HTTPProvider(self._rpc_url))
+            contract_address = Web3.to_checksum_address(CONSTANTS.STANDARD_EXCHANGE_ADDRESS)
+            contract = w3.eth.contract(address=contract_address, abi=matching_engine_abi)
+
+            return w3, contract
+
+        except Exception as e:
+            self.logger().error(f"Error creating contract instance: {e}")
+            raise
+
     async def _check_order_status_on_chain(
         self, base_address: str, quote_address: str, is_bid: bool, blockchain_order_id: int
     ) -> dict:
@@ -3493,17 +3523,9 @@ class StandardExchange(ExchangePyBase):
             }
         """
         try:
+            # Get contract instance using helper function
             from web3 import Web3
-
-            # Load contract ABI
-            abi_path = os.path.join(os.path.dirname(__file__), "lib", "matching_engine_abi.json")
-            with open(abi_path, "r") as f:
-                matching_engine_abi = json.load(f)
-
-            # Connect to blockchain
-            w3 = Web3(Web3.HTTPProvider(self._rpc_url))
-            contract_address = Web3.to_checksum_address(CONSTANTS.STANDARD_EXCHANGE_ADDRESS)
-            contract = w3.eth.contract(address=contract_address, abi=matching_engine_abi)
+            w3, contract = self._get_contract_instance()
 
             # Call getOrder view function
             self.logger().info(f"🔍 Querying order status on-chain:")
@@ -3707,22 +3729,10 @@ class StandardExchange(ExchangePyBase):
             Blockchain order ID (uint32) needed for contract cancellation
         """
         try:
-            import json
-            import os
-
             from web3 import Web3
 
-            # Load local ABI file
-            abi_path = os.path.join(os.path.dirname(__file__), "lib", "matching_engine_abi.json")
-            with open(abi_path, "r") as f:
-                matching_engine_abi = json.load(f)
-
-            # Connect to Somnia network
-            w3 = Web3(Web3.HTTPProvider(self._rpc_url))
-
-            # Get contract instance
-            contract_address = Web3.to_checksum_address(CONSTANTS.STANDARD_EXCHANGE_ADDRESS)
-            contract = w3.eth.contract(address=contract_address, abi=matching_engine_abi)
+            # Get contract instance using helper function
+            w3, contract = self._get_contract_instance()
 
             # Get transaction receipt
             tx_hash_bytes = bytes.fromhex(transaction_hash.replace('0x', ''))
@@ -3820,23 +3830,11 @@ class StandardExchange(ExchangePyBase):
             Transaction hash of cancellation
         """
         try:
-            import json
-            import os
-
             from eth_account import Account
             from web3 import Web3
 
-            # Load local ABI file (more up-to-date than standardweb3 package)
-            abi_path = os.path.join(os.path.dirname(__file__), "lib", "matching_engine_abi.json")
-            with open(abi_path, "r") as f:
-                matching_engine_abi = json.load(f)
-
-            # Connect to Somnia network
-            w3 = Web3(Web3.HTTPProvider(self._rpc_url))
-
-            # Get contract instance
-            contract_address = Web3.to_checksum_address(CONSTANTS.STANDARD_EXCHANGE_ADDRESS)
-            contract = w3.eth.contract(address=contract_address, abi=matching_engine_abi)
+            # Get contract instance using helper function
+            w3, contract = self._get_contract_instance()
 
             # Prepare account for signing
             account = Account.from_key(self._private_key)
@@ -4641,6 +4639,65 @@ class StandardExchange(ExchangePyBase):
         Override to always return True since Somnia uses REST API polling instead of WebSocket user streams.
         """
         return True
+
+    def get_price(self, trading_pair: str, is_buy: bool) -> Decimal:
+        """
+        Get the current market price from the contract using mktPrice function.
+        This method is called by get_price_by_type() for BestBid/BestAsk prices.
+        Also used by PMM strategy when price_source: current_market.
+
+        Args:
+            trading_pair: Trading pair (e.g., "SOMI-USDC")
+            is_buy: True for best ask (buy price), False for best bid (sell price)
+
+        Returns:
+            Current market price from contract
+        """
+        try:
+            # Get token addresses from trading pair
+            base_symbol, quote_symbol = trading_pair.split('-')
+            base_address = utils.convert_symbol_to_address(base_symbol, self._domain)
+            quote_address = utils.convert_symbol_to_address(quote_symbol, self._domain)
+
+            if not base_address or not quote_address:
+                self.logger().warning(f"Could not resolve token addresses for {trading_pair}")
+                return s_decimal_NaN
+
+            # Get contract instance using helper function
+            from web3 import Web3
+            w3, contract = self._get_contract_instance()
+
+            # Call mktPrice function
+            market_price_raw = contract.functions.mktPrice(
+                Web3.to_checksum_address(base_address),
+                Web3.to_checksum_address(quote_address)
+            ).call()
+
+            # Convert from contract format to human readable
+            # Contract price is typically in scaled format (e.g., 1e18 scale)
+            market_price = Decimal(market_price_raw) / Decimal(10**18)  # Assuming 18 decimals scaling
+
+            if market_price <= 0:
+                self.logger().warning(f"Invalid market price from contract for {trading_pair}: {market_price}")
+                return s_decimal_NaN
+
+            self.logger().debug(f"Contract market price for {trading_pair}: {market_price}")
+            return market_price
+
+        except Exception as e:
+            self.logger().error(f"Error getting market price from contract for {trading_pair}: {e}")
+            # Fallback to order book if contract call fails
+            try:
+                order_book = self.get_order_book(trading_pair)
+                if order_book is not None:
+                    price = order_book.get_price(is_buy)
+                    if price is not None and price > 0:
+                        self.logger().warning(f"Using order book fallback price for {trading_pair}: {price}")
+                        return Decimal(str(price))
+            except Exception as fallback_error:
+                self.logger().error(f"Order book fallback also failed: {fallback_error}")
+
+            return s_decimal_NaN
 
     # Required abstract methods
     def _initialize_trading_pair_symbols_from_exchange_info(self, exchange_info: Dict[str, Any]):
