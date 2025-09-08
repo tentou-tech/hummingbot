@@ -79,7 +79,7 @@ def main():
         "scipy>=1.11.1",
         "six>=1.16.0",
         "sqlalchemy>=1.4.49",
-        "standardweb3>=0.0.8",
+        "standardweb3==0.0.11",
         "tabulate>=0.9.0",
         "ujson>=5.7.0",
         "urllib3>=1.26.15,<2.0",
