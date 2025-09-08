@@ -3846,7 +3846,7 @@ class StandardExchange(ExchangePyBase):
 
                 # Build transaction with increased gas limit
                 self.logger().info(f"🔧 Building cancel transaction:")
-                self.logger().info(f"   - Contract: {contract_address}")
+                self.logger().info(f"   - Contract: {CONSTANTS.STANDARD_EXCHANGE_ADDRESS}")
                 self.logger().info(f"   - Method: cancelOrder({base_address}, {quote_address}, {is_bid}, {order_id})")
                 self.logger().info(f"   - From: {account.address}")
                 self.logger().info(f"   - Nonce: {nonce}")
