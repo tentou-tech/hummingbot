@@ -31,7 +31,9 @@ limitSell/limitBuy functions are properly implemented in the StandardWeb3 librar
 """
 
 import asyncio
+import json
 import logging
+import os
 import time
 from contextlib import contextmanager
 from decimal import Decimal
@@ -625,6 +627,31 @@ class StandardExchange(ExchangePyBase):
 
             self.logger().warning(f"🕐 Transaction {tx_hash[:10]}... timed out after 10 minutes")
 
+            # ENHANCED: Also check if the transaction actually failed
+            try:
+                from web3 import Web3
+                w3 = Web3(Web3.HTTPProvider(CONSTANTS.SOMNIA_RPC_URL))
+                
+                # Try to get transaction receipt to see if it failed
+                try:
+                    receipt = await self._run_in_executor(lambda: w3.eth.get_transaction_receipt(tx_hash))
+                    if receipt and receipt.status == 0:
+                        self.logger().error(f"❌ Found FAILED transaction during cleanup: {tx_hash[:10]}...")
+                        if client_order_id:
+                            await self._handle_transaction_failure(client_order_id, tx_hash, receipt)
+                        # Remove from tracking and continue
+                        self._pending_tx_hashes.pop(tx_hash, None)
+                        self._tx_order_mapping.pop(tx_hash, None)
+                        if client_order_id:
+                            self._order_tx_mapping.pop(client_order_id, None)
+                            self._order_execution_status.pop(client_order_id, None)
+                        continue
+                except Exception:
+                    # Receipt not found - transaction might still be pending or dropped
+                    pass
+            except Exception as e:
+                self.logger().debug(f"Could not check transaction status during cleanup: {e}")
+
             if client_order_id:
                 # Check if order has a known status before marking as failed
                 if hasattr(self, "_order_tracker") and client_order_id in self._order_tracker.active_orders:
@@ -749,6 +776,75 @@ class StandardExchange(ExchangePyBase):
 
         except Exception as e:
             self.logger().error(f"Error processing failed transaction {tx_hash}: {e}")
+
+    async def check_order_status_by_id(self, trading_pair: str, blockchain_order_id: int) -> dict:
+        """
+        Public method to check order status by blockchain order ID.
+        Useful for debugging and external status checks.
+
+        Args:
+            trading_pair: Trading pair (e.g., "SOMI-USDC")
+            blockchain_order_id: Blockchain order ID
+
+        Returns:
+            Order status info dict
+        """
+        try:
+            base_symbol, quote_symbol = trading_pair.split('-')
+            base_address = utils.convert_symbol_to_address(base_symbol, self._domain)
+            quote_address = utils.convert_symbol_to_address(quote_symbol, self._domain)
+
+            # For this public method, we'll check both bid and ask sides
+            # since we don't know which side the order is on
+            self.logger().info(f"🔍 Checking order status for ID {blockchain_order_id} on {trading_pair}")
+
+            # Try bid side first
+            bid_status = await self._check_order_status_on_chain(
+                base_address=base_address,
+                quote_address=quote_address,
+                is_bid=True,
+                blockchain_order_id=blockchain_order_id
+            )
+
+            if bid_status['exists']:
+                self.logger().info(f"✅ Found order {blockchain_order_id} on BID side")
+                bid_status['side'] = 'BUY'
+                return bid_status
+
+            # Try ask side
+            ask_status = await self._check_order_status_on_chain(
+                base_address=base_address,
+                quote_address=quote_address,
+                is_bid=False,
+                blockchain_order_id=blockchain_order_id
+            )
+
+            if ask_status['exists']:
+                self.logger().info(f"✅ Found order {blockchain_order_id} on ASK side")
+                ask_status['side'] = 'SELL'
+                return ask_status
+
+            # Order not found on either side
+            self.logger().info(f"❌ Order {blockchain_order_id} not found on either BID or ASK side")
+            return {
+                'exists': False,
+                'side': 'UNKNOWN',
+                'owner': None,
+                'price': 0,
+                'remaining_amount': 0,
+                'is_active': False
+            }
+
+        except Exception as e:
+            self.logger().error(f"Error checking order status for ID {blockchain_order_id}: {e}")
+            return {
+                'exists': None,
+                'side': 'ERROR',
+                'owner': None,
+                'price': 0,
+                'remaining_amount': 0,
+                'is_active': None
+            }
 
     def get_order_blockchain_status(self, client_order_id: str) -> Dict:
         """Get blockchain-specific status info for an order."""
@@ -3371,9 +3467,106 @@ class StandardExchange(ExchangePyBase):
             self.logger().error(f"❌ Failed to place order via StandardWeb3: {e}", exc_info=True)
             raise
 
+    async def _run_in_executor(self, func, *args):
+        """Helper method to run synchronous code in executor"""
+        import asyncio
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(None, func, *args)
+
+    async def _check_order_status_on_chain(
+        self, base_address: str, quote_address: str, is_bid: bool, blockchain_order_id: int
+    ) -> dict:
+        """
+        Check order status directly from the contract using getOrder() view function.
+        This is MUCH better than parsing transaction receipts!
+
+        Args:
+            base_address: Base token address
+            quote_address: Quote token address  
+            is_bid: True for buy orders, False for sell orders
+            blockchain_order_id: Blockchain order ID
+
+        Returns:
+            dict with order status info: {
+                'exists': bool,           # Whether order exists on contract
+                'owner': str,            # Order owner address (if exists)
+                'price': int,            # Order price in contract format (if exists)
+                'remaining_amount': int, # Remaining deposit amount (if exists)
+                'is_active': bool        # Whether order is still active/cancellable
+            }
+        """
+        try:
+            from web3 import Web3
+
+            # Load contract ABI
+            abi_path = os.path.join(os.path.dirname(__file__), "lib", "matching_engine_abi.json")
+            with open(abi_path, "r") as f:
+                matching_engine_abi = json.load(f)
+
+            # Connect to blockchain
+            w3 = Web3(Web3.HTTPProvider(self._rpc_url))
+            contract_address = Web3.to_checksum_address(CONSTANTS.STANDARD_EXCHANGE_ADDRESS)
+            contract = w3.eth.contract(address=contract_address, abi=matching_engine_abi)
+
+            # Call getOrder view function
+            self.logger().info(f"🔍 Querying order status on-chain:")
+            self.logger().info(f"   - base: {base_address}")
+            self.logger().info(f"   - quote: {quote_address}")
+            self.logger().info(f"   - is_bid: {is_bid}")
+            self.logger().info(f"   - order_id: {blockchain_order_id}")
+
+            order_result = await self._run_in_executor(
+                lambda: contract.functions.getOrder(
+                    Web3.to_checksum_address(base_address),
+                    Web3.to_checksum_address(quote_address),
+                    is_bid,
+                    blockchain_order_id
+                ).call()
+            )
+
+            # Parse the Order struct result: (owner, price, depositAmount)
+            owner_address = order_result[0]
+            price = order_result[1]
+            remaining_amount = order_result[2]
+
+            # Check if order exists by examining the owner address
+            # Non-existent orders return zero address (0x0000...)
+            order_exists = owner_address != "0x0000000000000000000000000000000000000000"
+
+            status_info = {
+                'exists': order_exists,
+                'owner': owner_address if order_exists else None,
+                'price': price if order_exists else 0,
+                'remaining_amount': remaining_amount if order_exists else 0,
+                'is_active': order_exists and remaining_amount > 0  # Active if exists and has remaining amount
+            }
+
+            self.logger().info(f"📊 Order status result:")
+            self.logger().info(f"   - exists: {status_info['exists']}")
+            if order_exists:
+                self.logger().info(f"   - owner: {status_info['owner']}")
+                self.logger().info(f"   - price: {status_info['price']}")
+                self.logger().info(f"   - remaining_amount: {status_info['remaining_amount']}")
+                self.logger().info(f"   - is_active: {status_info['is_active']}")
+            else:
+                self.logger().info(f"   - Order does not exist (executed/cancelled/never placed)")
+
+            return status_info
+
+        except Exception as e:
+            self.logger().error(f"❌ Error checking order status on-chain: {e}")
+            # Return unknown status on error
+            return {
+                'exists': None,  # Unknown
+                'owner': None,
+                'price': 0,
+                'remaining_amount': 0,
+                'is_active': None
+            }
+
     async def _place_cancel(self, order_id: str, tracked_order: InFlightOrder) -> bool:
         """
-        Cancel an order on the exchange - ENHANCED VERSION that handles missing exchange_order_id.
+        Cancel an order on the exchange - ENHANCED VERSION with contract query validation.
 
         Args:
             order_id: Client order ID
@@ -3392,21 +3585,21 @@ class StandardExchange(ExchangePyBase):
 
                 if execution_status == "matched":
                     self.logger().info(f"Order {order_id} was immediately executed - cannot be cancelled")
-                    # This is a successful immediate execution, not a failure
                     return False
                 elif execution_status == "failed":
                     self.logger().warning(f"Order {order_id} failed during placement - marking as not found")
-                    # This is a true failure case
                     await self._order_tracker.process_order_not_found(order_id)
                     return False
                 else:
-                    # Unknown status - could be immediate execution without proper tracking
                     self.logger().warning(f"Order {order_id} has no exchange_order_id (status: {execution_status}) - likely immediate execution")
                     return False
 
             self.logger().info(f"🔧 Cancelling order {order_id} with combined ID: {combined_id}")
 
             # Extract transaction hash and blockchain order ID from combined format
+            transaction_hash = None
+            blockchain_order_id = None
+            
             if ":" in combined_id:
                 # New format: "tx_hash:order_id"
                 transaction_hash, blockchain_order_id_str = combined_id.split(":", 1)
@@ -3417,31 +3610,55 @@ class StandardExchange(ExchangePyBase):
                     self.logger().error(f"❌ Invalid blockchain order ID format: {blockchain_order_id_str}")
                     raise ValueError(f"Invalid blockchain order ID format in exchange_order_id")
             else:
-                # Legacy format: just transaction hash - need to extract order ID from receipt
+                # Legacy format: just transaction hash
                 transaction_hash = combined_id
-                self.logger().info(f"⚠️  Legacy format detected, extracting order ID from transaction receipt...")
+                self.logger().info(f"⚠️  Legacy format detected: {transaction_hash}")
 
+            # 🚀 NEW APPROACH: Use contract query instead of transaction receipt parsing!
+            if blockchain_order_id is None and transaction_hash:
+                self.logger().info(f"⚠️  Extracting order ID from transaction receipt (fallback)...")
                 try:
                     blockchain_order_id = await self._extract_blockchain_order_id_for_cancel(transaction_hash)
                     if blockchain_order_id is None:
                         raise ValueError("Could not extract order ID from transaction receipt")
                     self.logger().info(f"🎯 Using OrderPlaced ID: {blockchain_order_id} from tx: {transaction_hash}")
                 except Exception as e:
-                    # If we can't extract the order ID, the order might have been immediately matched
                     self.logger().warning(f"⚠️  Could not extract blockchain order ID from transaction {transaction_hash}: {e}")
                     self.logger().info(f"📊 This often happens with orders that matched immediately - they can't be cancelled")
-
-                    # Don't mark as "not found" - these are likely successful immediate executions
-                    # Just return False to indicate cancellation was not possible
                     return False
-
-            self.logger().info(f"🎯 Using blockchain order ID: {blockchain_order_id} for cancellation")
 
             # Get token addresses from trading pair
             base_symbol, quote_symbol = tracked_order.trading_pair.split('-')
             base_address = utils.convert_symbol_to_address(base_symbol, self._domain)
             quote_address = utils.convert_symbol_to_address(quote_symbol, self._domain)
             is_bid = (tracked_order.trade_type.name == "BUY")
+
+            # 🚀 SMART CONTRACT QUERY: Check order status before attempting cancellation
+            self.logger().info(f"🎯 Checking order status on contract before cancellation...")
+            order_status = await self._check_order_status_on_chain(
+                base_address=base_address,
+                quote_address=quote_address,
+                is_bid=is_bid,
+                blockchain_order_id=blockchain_order_id
+            )
+
+            # Handle different order states based on contract query
+            if order_status['exists'] == False:
+                self.logger().info(f"📊 Order {order_id} does not exist on contract (already executed/cancelled)")
+                # This is not a failure - order was successfully executed or already cancelled
+                return False
+
+            elif order_status['exists'] == None:
+                self.logger().warning(f"⚠️  Could not determine order status for {order_id} - attempting cancellation anyway")
+                # Continue with cancellation attempt if status is unknown
+
+            elif not order_status['is_active']:
+                self.logger().info(f"📊 Order {order_id} exists but is not active (remaining_amount: {order_status['remaining_amount']})")
+                self.logger().info(f"📊 This usually means the order was already fully executed")
+                return False
+
+            else:
+                self.logger().info(f"✅ Order {order_id} is active on contract - proceeding with cancellation")
 
             self.logger().info(f"🎯 Performing on-chain cancellation:")
             self.logger().info(f"   - blockchain_order_id: {blockchain_order_id}")
