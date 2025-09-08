@@ -35,6 +35,7 @@ import json
 import logging
 import os
 import time
+import traceback
 from contextlib import contextmanager
 from decimal import Decimal
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
@@ -194,8 +195,6 @@ class StandardExchange(ExchangePyBase):
         self.logger().info(f"  - self._trading_required = {self._trading_required}")
 
         # Log the call stack to understand who's creating this connector
-        import traceback
-
         stack = traceback.format_stack()
         self.logger().info("DEBUG: Connector creation call stack (last 5 frames):")
         for i, frame in enumerate(stack[-5:]):
@@ -631,7 +630,7 @@ class StandardExchange(ExchangePyBase):
             try:
                 from web3 import Web3
                 w3 = Web3(Web3.HTTPProvider(CONSTANTS.SOMNIA_RPC_URL))
-                
+
                 # Try to get transaction receipt to see if it failed
                 try:
                     receipt = await self._run_in_executor(lambda: w3.eth.get_transaction_receipt(tx_hash))
@@ -1839,8 +1838,6 @@ class StandardExchange(ExchangePyBase):
         self.logger().info(f"  trading_required: {self._trading_required}")
 
         # Log call stack to see who's calling this
-        import traceback
-
         stack = traceback.format_stack()
         self.logger().info("DEBUG: update_trading_pairs call stack (last 3 frames):")
         for i, frame in enumerate(stack[-3:]):
@@ -2505,10 +2502,10 @@ class StandardExchange(ExchangePyBase):
                 self.logger().info(f"  - execution_price: {execution_price}")
 
                 # ===== APPROACH SELECTION =====
-                # NEW: Use StandardWeb3 0.0.10 with fallback to direct contract method
+                # NEW: Use StandardWeb3 with fallback to direct contract method
                 # This provides order IDs when StandardWeb3 works, with reliable fallback
 
-                self.logger().info("🔄 Trying StandardWeb3 0.0.10 for order placement...")
+                self.logger().info("🔄 Trying StandardWeb3 for order placement...")
 
                 try:
                     # Create InFlightOrder for StandardWeb3 method
@@ -3482,7 +3479,7 @@ class StandardExchange(ExchangePyBase):
 
         Args:
             base_address: Base token address
-            quote_address: Quote token address  
+            quote_address: Quote token address
             is_bid: True for buy orders, False for sell orders
             blockchain_order_id: Blockchain order ID
 
@@ -3599,7 +3596,7 @@ class StandardExchange(ExchangePyBase):
             # Extract transaction hash and blockchain order ID from combined format
             transaction_hash = None
             blockchain_order_id = None
-            
+
             if ":" in combined_id:
                 # New format: "tx_hash:order_id"
                 transaction_hash, blockchain_order_id_str = combined_id.split(":", 1)
@@ -3643,12 +3640,12 @@ class StandardExchange(ExchangePyBase):
             )
 
             # Handle different order states based on contract query
-            if order_status['exists'] == False:
+            if order_status['exists'] is False:
                 self.logger().info(f"📊 Order {order_id} does not exist on contract (already executed/cancelled)")
                 # This is not a failure - order was successfully executed or already cancelled
                 return False
 
-            elif order_status['exists'] == None:
+            elif order_status['exists'] is None:
                 self.logger().warning(f"⚠️  Could not determine order status for {order_id} - attempting cancellation anyway")
                 # Continue with cancellation attempt if status is unknown
 
@@ -3678,7 +3675,8 @@ class StandardExchange(ExchangePyBase):
             self.logger().info(f"🔄 Cancel transaction sent: {cancel_tx_hash}, waiting for confirmation...")
 
             # Wait for transaction confirmation and verify success
-            success = await self._verify_cancellation_success(cancel_tx_hash, blockchain_order_id)
+            success = await self._verify_cancellation_success(cancel_tx_hash, blockchain_order_id,
+                                                              base_address, quote_address, is_bid)
 
             if success:
                 self.logger().info(f"✅ Order cancelled successfully: {order_id} -> {cancel_tx_hash}")
@@ -3903,30 +3901,34 @@ class StandardExchange(ExchangePyBase):
             self.logger().error(f"Error cancelling order on contract: {e}")
             raise
 
-    async def _verify_cancellation_success(self, tx_hash: str, expected_order_id: int) -> bool:
+    async def _verify_cancellation_success(self, tx_hash: str, expected_order_id: int,
+                                           base_address: str, quote_address: str, is_bid: bool) -> bool:
         """
-        Verify that a cancellation transaction actually succeeded in cancelling the order.
+        Verify cancellation success by checking order status on contract after transaction is mined.
+        This replaces the unreliable event parsing approach with direct contract queries.
 
         Args:
             tx_hash: Transaction hash of the cancellation
-            expected_order_id: The order ID that should have been cancelled
+            expected_order_id: Expected blockchain order ID that should be cancelled
+            base_address: Base token address
+            quote_address: Quote token address
+            is_bid: True for buy orders, False for sell orders
 
         Returns:
-            True if cancellation was successful, False otherwise
+            bool: True if cancellation was successful, False otherwise
         """
         try:
-            import asyncio
-
             from web3 import Web3
 
+            # Wait for transaction to be mined
             w3 = Web3(Web3.HTTPProvider(self._rpc_url))
-
-            # Wait for transaction to be mined (up to 30 seconds)
             receipt = None
-            for _ in range(30):  # 30 attempts, 1 second apart
+            self.logger().info(f"⏳ Waiting for cancel transaction {tx_hash} to be mined...")
+            for attempt in range(30):  # Wait up to 30 seconds
                 try:
                     receipt = w3.eth.get_transaction_receipt(tx_hash)
-                    break
+                    if receipt:
+                        break
                 except Exception:
                     await asyncio.sleep(1)
 
@@ -3939,59 +3941,30 @@ class StandardExchange(ExchangePyBase):
                 self.logger().error(f"❌ Cancel transaction {tx_hash} failed with status: {receipt.status}")
                 return False
 
-            # CRITICAL: Check for internal failures by examining logs
-            # Based on the trace, failed cancellations have NO logs (empty logs array)
-            # Successful cancellations should have OrderCancelled events
+            # IMPROVED: Instead of parsing events, directly check order status on contract
+            self.logger().info(f"✅ Cancel transaction mined successfully, checking order status on contract...")
 
-            # Check for OrderCancelled event in the logs
-            order_cancelled_found = False
-            if receipt.logs:
-                self.logger().info(f"🔍 Found {len(receipt.logs)} logs in cancel transaction")
+            # Wait a bit for state to update
+            await asyncio.sleep(2)
 
-                # Load contract ABI to decode events properly
-                try:
-                    abi_path = os.path.join(os.path.dirname(__file__), "lib", "matching_engine_abi.json")
-                    with open(abi_path, "r") as f:
-                        abi = json.load(f)
+            # Check order status directly on contract
+            order_status = await self._check_order_status_on_chain(
+                base_address=base_address,
+                quote_address=quote_address,
+                is_bid=is_bid,
+                blockchain_order_id=expected_order_id
+            )
 
-                    contract_address = Web3.to_checksum_address(CONSTANTS.STANDARD_EXCHANGE_ADDRESS)
-                    contract = w3.eth.contract(address=contract_address, abi=abi)
-
-                    for log_entry in receipt.logs:
-                        try:
-                            decoded_log = contract.events.OrderCancelled().process_log(log_entry)
-                            cancelled_order_id = decoded_log['args']['id']
-                            self.logger().info(f"✅ Found OrderCancelled event: order ID {cancelled_order_id}")
-
-                            if cancelled_order_id == expected_order_id:
-                                order_cancelled_found = True
-                                break
-                        except Exception:
-                            # Not an OrderCancelled event or decoding failed, try other events
-                            try:
-                                # Just log the raw event for debugging
-                                if len(log_entry.topics) > 0:
-                                    event_sig = log_entry.topics[0].hex()
-                                    self.logger().debug(f"🔍 Found event: {event_sig}")
-                            except Exception:
-                                pass
-                            continue
-
-                except Exception as e:
-                    self.logger().warning(f"⚠️  Could not decode logs: {e}")
-                    # Fall back to simple log presence check
-                    order_cancelled_found = len(receipt.logs) > 0
-            else:
-                self.logger().error(f"❌ No logs in cancel transaction - cancellation failed internally")
-                self.logger().error(f"❌ This indicates the cancelOrder call reverted or failed")
-
-            # Final determination
-            if order_cancelled_found:
-                self.logger().info(f"✅ Cancellation verified: order {expected_order_id} successfully cancelled")
+            # Determine cancellation success based on order status
+            if not order_status['exists']:
+                self.logger().info(f"✅ Cancellation verified: order {expected_order_id} no longer exists on contract")
+                return True
+            elif not order_status['is_active']:
+                self.logger().info(f"✅ Cancellation verified: order {expected_order_id} exists but is inactive (fully executed)")
                 return True
             else:
-                self.logger().error(f"❌ Cancellation failed: no OrderCancelled event for order {expected_order_id}")
-                self.logger().error(f"❌ Possible reasons: order already executed/cancelled, invalid order ID, or insufficient gas")
+                self.logger().error(f"❌ Cancellation failed: order {expected_order_id} still active on contract")
+                self.logger().error(f"❌ Order status: exists={order_status['exists']}, active={order_status['is_active']}, remaining={order_status['remaining_amount']}")
                 return False
 
         except Exception as e:
@@ -4750,8 +4723,6 @@ class StandardExchange(ExchangePyBase):
 
                 except Exception as e:
                     self.logger().error("DEBUG: Error processing trading pair {trading_pair}: {e}")
-                    import traceback
-
                     self.logger().error("DEBUG: Traceback: {traceback.format_exc()}")
 
         self.logger().info("DEBUG: Final mapping before setting: {dict(mapping)}")
