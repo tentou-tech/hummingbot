@@ -33,6 +33,7 @@ limitSell/limitBuy functions are properly implemented in the StandardWeb3 librar
 import asyncio
 import json
 import logging
+import math
 import os
 import time
 import traceback
@@ -4640,66 +4641,8 @@ class StandardExchange(ExchangePyBase):
         """
         return True
 
-    def get_price(self, trading_pair: str, is_buy: bool) -> Decimal:
-        """
-        Get the current market price from the contract using mktPrice function.
-        This method is called by get_price_by_type() for BestBid/BestAsk prices.
-        Also used by PMM strategy when price_source: current_market.
-
-        Args:
-            trading_pair: Trading pair (e.g., "SOMI-USDC")
-            is_buy: True for best ask (buy price), False for best bid (sell price)
-
-        Returns:
-            Current market price from contract
-        """
-        try:
-            # Get token addresses from trading pair
-            base_symbol, quote_symbol = trading_pair.split('-')
-            base_address = utils.convert_symbol_to_address(base_symbol, self._domain)
-            quote_address = utils.convert_symbol_to_address(quote_symbol, self._domain)
-
-            if not base_address or not quote_address:
-                self.logger().warning(f"Could not resolve token addresses for {trading_pair}")
-                return s_decimal_NaN
-
-            # Get contract instance using helper function
-            from web3 import Web3
-            w3, contract = self._get_contract_instance()
-
-            # Call mktPrice function
-            market_price_raw = contract.functions.mktPrice(
-                Web3.to_checksum_address(base_address),
-                Web3.to_checksum_address(quote_address)
-            ).call()
-
-            # Convert from contract format to human readable
-            # Contract price is typically in scaled format (e.g., 1e18 scale)
-            market_price = Decimal(market_price_raw) / Decimal(10**18)  # Assuming 18 decimals scaling
-
-            if market_price <= 0:
-                self.logger().warning(f"Invalid market price from contract for {trading_pair}: {market_price}")
-                return s_decimal_NaN
-
-            self.logger().debug(f"Contract market price for {trading_pair}: {market_price}")
-            return market_price
-
-        except Exception as e:
-            self.logger().error(f"Error getting market price from contract for {trading_pair}: {e}")
-            # Fallback to order book if contract call fails
-            try:
-                order_book = self.get_order_book(trading_pair)
-                if order_book is not None:
-                    price = order_book.get_price(is_buy)
-                    if price is not None and price > 0:
-                        self.logger().warning(f"Using order book fallback price for {trading_pair}: {price}")
-                        return Decimal(str(price))
-            except Exception as fallback_error:
-                self.logger().error(f"Order book fallback also failed: {fallback_error}")
-
-            return s_decimal_NaN
-
     # Required abstract methods
+
     def _initialize_trading_pair_symbols_from_exchange_info(self, exchange_info: Dict[str, Any]):
         """
         Initialize trading pair symbols from exchange info.

@@ -32,7 +32,7 @@ class StandardAPIOrderBookDataSource(OrderBookTrackerDataSource):
     """
     Order book data source for Somnia exchange.
     """
-    
+
     _logger: Optional[HummingbotLogger] = None
 
     @classmethod
@@ -65,16 +65,19 @@ class StandardAPIOrderBookDataSource(OrderBookTrackerDataSource):
         )
         self._message_queue: Dict[str, asyncio.Queue] = defaultdict(asyncio.Queue)
         self._last_orderbook_timestamp: Dict[str, float] = {}
-        
+
         # Initialize StandardWeb3 client for API calls
         try:
+            # noqa: mock - dummy key for read-only operations
+            dummy_key = '0x0000000000000000000000000000000000000000000000000000000000000001'  # noqa: mock
+            domain_config = CONSTANTS.DOMAIN_CONFIG[self._domain]
             self._standard_client = StandardClient(
-                private_key='0x0000000000000000000000000000000000000000000000000000000000000001',  # dummy key for read-only operations
-                http_rpc_url=CONSTANTS.DOMAIN_CONFIG[self._domain]["rpc_url"],
-                matching_engine_address=CONSTANTS.DOMAIN_CONFIG[self._domain]["standard_exchange_address"],
-                api_url=CONSTANTS.DOMAIN_CONFIG[self._domain]["api_url"]
+                private_key=dummy_key,
+                http_rpc_url=domain_config["rpc_url"],
+                matching_engine_address=domain_config["standard_exchange_address"],
+                api_url=domain_config["api_url"]
             )
-            self.logger().info(f"✅ StandardWeb3 client initialized successfully")
+            self.logger().info("✅ StandardWeb3 client initialized successfully")
         except Exception as e:
             self.logger().error(f"❌ Failed to initialize StandardWeb3 client: {e}")
             self._standard_client = None
@@ -82,14 +85,18 @@ class StandardAPIOrderBookDataSource(OrderBookTrackerDataSource):
     def update_trading_pairs(self, trading_pairs: List[str]):
         """
         Update trading pairs after initialization.
-        
+
         Args:
             trading_pairs: New list of trading pairs to track
         """
         if trading_pairs != self._trading_pairs:
-            self.logger().info(f"Updating order book data source trading pairs from {self._trading_pairs} to {trading_pairs}")
+            old_pairs = self._trading_pairs
+            new_pairs = trading_pairs
+            self.logger().info(
+                f"Updating order book data source trading pairs from {old_pairs} to {new_pairs}"
+            )
             self._trading_pairs = trading_pairs
-            
+
             # Initialize message queues for new trading pairs
             for trading_pair in trading_pairs:
                 if trading_pair not in self._message_queue:
@@ -98,109 +105,134 @@ class StandardAPIOrderBookDataSource(OrderBookTrackerDataSource):
                     self._last_orderbook_timestamp[trading_pair] = 0.0
 
     async def get_last_traded_prices(
-        self, 
-        trading_pairs: List[str], 
+        self,
+        trading_pairs: List[str],
         domain: Optional[str] = None
     ) -> Dict[str, float]:
         """
         Get last traded prices for trading pairs.
-        
+        For DEX with limited trade history, we use order book mid-price as last trade price.
+
         Args:
             trading_pairs: List of trading pairs
             domain: Domain (unused for Somnia)
-            
+
         Returns:
             Dictionary mapping trading pairs to last prices
         """
+        self.logger().info(f"🔍 get_last_traded_prices called for: {trading_pairs}")
         result = {}
-        
+
         for trading_pair in trading_pairs:
             try:
-                # Use order book snapshot to get market price
-                # Get the mid-price from best bid and ask
-                snapshot = await self._request_order_book_snapshot(trading_pair)
-                
-                bids = snapshot.get("bids", [])
-                asks = snapshot.get("asks", [])
-                
-                if bids and asks:
-                    # bids and asks are arrays of [price, size] tuples
-                    best_bid = float(bids[0][0]) if len(bids[0]) > 0 else 0
-                    best_ask = float(asks[0][0]) if len(asks[0]) > 0 else 0
-                    if best_bid > 0 and best_ask > 0:
-                        # Use mid-price as last traded price
-                        result[trading_pair] = (best_bid + best_ask) / 2
-                elif bids:
-                    result[trading_pair] = float(bids[0][0]) if len(bids[0]) > 0 else 0
-                elif asks:
-                    result[trading_pair] = float(asks[0][0]) if len(asks[0]) > 0 else 0
-                    
+                self.logger().info(f"🔄 Processing {trading_pair} for last traded price...")
+
+                # First try to get actual trade history from the API
+                last_trade_price = await self._get_last_trade_from_api(trading_pair)
+
+                if last_trade_price is not None:
+                    result[trading_pair] = last_trade_price
+                    self.logger().info(f"✅ Got actual last trade price for {trading_pair}: {last_trade_price}")
+                else:
+                    self.logger().info(f"⚠️ No trade price from API for {trading_pair}, using order book fallback")
+
+                    # For DEX with limited trade history, use mid-price as "last trade price"
+                    # This gives PMM a reasonable price to work with
+                    snapshot = await self._request_order_book_snapshot(trading_pair)
+
+                    bids = snapshot.get("bids", [])
+                    asks = snapshot.get("asks", [])
+
+                    if bids and asks:
+                        # bids and asks are arrays of [price, size] tuples
+                        best_bid = float(bids[0][0]) if len(bids[0]) > 0 else 0
+                        best_ask = float(asks[0][0]) if len(asks[0]) > 0 else 0
+                        if best_bid > 0 and best_ask > 0:
+                            # Use mid-price as last trade price for DEX
+                            mid_price = (best_bid + best_ask) / 2
+                            result[trading_pair] = mid_price
+                            self.logger().info(
+                                f"📊 Using mid-price as last trade price for {trading_pair}: {mid_price}"
+                            )
+                            self.logger().info(
+                                f"📊 Best bid: {best_bid}, Best ask: {best_ask}, Mid-price: {mid_price}"
+                            )
+                    elif bids:
+                        result[trading_pair] = float(bids[0][0]) if len(bids[0]) > 0 else 0
+                        log_msg = f"📊 Using best bid as last trade price for {trading_pair}: {result[trading_pair]}"
+                        self.logger().info(log_msg)
+                    elif asks:
+                        result[trading_pair] = float(asks[0][0]) if len(asks[0]) > 0 else 0
+                        ask_log_msg = f"📊 Using best ask as last trade price for {trading_pair}: {result[trading_pair]}"
+                        self.logger().info(ask_log_msg)
+
             except Exception as e:
-                self.logger().error(f"Error getting last traded price for {trading_pair}: {e}")
-                
+                self.logger().error(f"❌ Error getting last traded price for {trading_pair}: {e}")
+
+        self.logger().info(f"🎯 Final get_last_traded_prices result: {result}")
         return result
 
     async def _order_book_snapshot(self, trading_pair: str) -> OrderBookMessage:
         """
         Get order book snapshot for a trading pair.
-        
+
         Args:
             trading_pair: Trading pair
-            
+
         Returns:
             OrderBookMessage with snapshot data
         """
         snapshot = await self._request_order_book_snapshot(trading_pair)
         snapshot_timestamp = utils.generate_timestamp()
-        
+
         # Parse the snapshot data
         # The _request_order_book_snapshot already returns processed data in format:
         # {"bids": [[price, size], ...], "asks": [[price, size], ...]}
         bids = snapshot.get("bids", [])
         asks = snapshot.get("asks", [])
-        
+
         # Prepare data for StandardOrderBook
         snapshot_data = {
             "trading_pair": trading_pair,
             "bids": bids,
             "asks": asks,
         }
-        
+
         # Create order book message using StandardOrderBook
         snapshot_msg = StandardOrderBook.snapshot_message_from_exchange_rest(
             snapshot_data, snapshot_timestamp
         )
-        
+
         return snapshot_msg
 
     async def get_new_order_book(self, trading_pair: str) -> OrderBook:
         """
         Create a new order book for the given trading pair.
-        
+
         Args:
             trading_pair: Trading pair
-            
+
         Returns:
             New OrderBook instance
         """
         self.logger().info(f"DEBUG: get_new_order_book() called for {trading_pair}")
         self.logger().info(f"Creating new order book for {trading_pair}")
-        
+
         try:
             # Create a new order book instance using StandardOrderBook
             self.logger().info("DEBUG: Creating StandardOrderBook instance")
             order_book = StandardOrderBook()
             self.logger().info("DEBUG: StandardOrderBook instance created successfully")
-            
+
             # Initialize with snapshot data
             self.logger().info("DEBUG: Getting order book snapshot for initialization")
             snapshot_msg = await self._order_book_snapshot(trading_pair)
             self.logger().info("DEBUG: Order book snapshot obtained successfully")
-            
+
             self.logger().info("DEBUG: Applying snapshot to order book")
             order_book.apply_snapshot(snapshot_msg.bids, snapshot_msg.asks, snapshot_msg.update_id)
             self.logger().info(f"Successfully created and initialized order book for {trading_pair}")
-            
+
             return order_book
         except Exception as e:
             self.logger().error(f"DEBUG: Exception in get_new_order_book for {trading_pair}: {e}")
@@ -211,32 +243,37 @@ class StandardAPIOrderBookDataSource(OrderBookTrackerDataSource):
     async def _request_order_book_snapshot(self, trading_pair: str) -> Dict[str, Any]:
         """
         Request order book snapshot from the exchange using StandardWeb3 client with REST API fallback.
-        
+
         Args:
             trading_pair: Trading pair (e.g., 'STT-USDC')
-            
+
         Returns:
             Raw order book data from exchange
         """
         self.logger().info(f"DEBUG: _request_order_book_snapshot called for {trading_pair}")
-        self.logger().info(f"🔴 PRODUCTION MODE: Fetching REAL order book data for {trading_pair}")
-        
+        production_msg = f"🔴 PRODUCTION MODE: Fetching REAL order book data for {trading_pair}"
+        self.logger().info(production_msg)
+
         # Extract token addresses from trading pair for API call
         # STT-USDC -> base=STT, quote=USDC
         base_symbol, quote_symbol = trading_pair.split('-')
-        
+
         # Get token addresses from constants file for the current domain
         from .standard_constants import get_token_addresses
-        
+
         token_addresses = get_token_addresses(self._domain)
         base_address = token_addresses.get(base_symbol)
         quote_address = token_addresses.get(quote_symbol)
-        
+
         if not base_address or not quote_address:
-            raise ValueError(f"Unknown token addresses for {trading_pair}. Base: {base_symbol} -> {base_address}, Quote: {quote_symbol} -> {quote_address}")
-        
+            error_msg = (
+                f"Unknown token addresses for {trading_pair}. "
+                f"Base: {base_symbol} -> {base_address}, Quote: {quote_symbol} -> {quote_address}"
+            )
+            raise ValueError(error_msg)
+
         self.logger().info(f"🔍 Token mapping: {base_symbol}({base_address}) / {quote_symbol}({quote_address})")
-        
+
         # Method 1: Try StandardWeb3 client first
         if self._standard_client:
             try:
@@ -247,7 +284,7 @@ class StandardAPIOrderBookDataSource(OrderBookTrackerDataSource):
                 self.logger().info("🔄 Falling back to REST API method")
         else:
             self.logger().warning("⚠️ StandardWeb3 client not available, using REST API method")
-        
+
         # Method 2: Fallback to REST API
         try:
             self.logger().info("🥈 FALLBACK: Using REST API method")
@@ -262,30 +299,30 @@ class StandardAPIOrderBookDataSource(OrderBookTrackerDataSource):
     async def _fetch_via_standardweb3(self, base_address: str, quote_address: str, trading_pair: str) -> Dict[str, Any]:
         """
         Fetch order book data using StandardWeb3 client.
-        
+
         Args:
             base_address: Base token address
             quote_address: Quote token address
             trading_pair: Trading pair name
-            
+
         Returns:
             Order book data in standardized format
         """
         # Use StandardWeb3 client to fetch order book ticks
         limit = 20  # Get top 20 levels
-        
+
         self.logger().info(f"🌐 Calling StandardWeb3 fetch_orderbook_ticks({base_address}, {quote_address}, {limit})")
-        
+
         # Call the async standardweb3 API method directly
         response = await self._standard_client.fetch_orderbook_ticks(
             base=base_address,
             quote=quote_address,
             limit=limit
         )
-        
+
         self.logger().info(f"✅ Received response from StandardWeb3 API for {trading_pair}")
         self.logger().debug(f"📋 Raw API response: {response}")
-        
+
         # Process the response from StandardWeb3 API
         if response and isinstance(response, dict):
             # {
@@ -294,17 +331,17 @@ class StandardAPIOrderBookDataSource(OrderBookTrackerDataSource):
             #     "bids": [{"orderbook": "...", "price": 286.68875, "amount": 2406.3303, "count": 1}, ...],
             #     "asks": [{"orderbook": "...", "price": 286.68906, "amount": 4.6462846, "count": 1}, ...]
             # }
-            
+
             raw_bids = response.get("bids", [])
             raw_asks = response.get("asks", [])
-            
+
             if not raw_bids and not raw_asks:
                 self.logger().warning(f"⚠️ No order book data returned for {trading_pair}")
-            
+
             # Process bids and asks directly from the response
             bids = []
             asks = []
-            
+
             # Process bids
             for bid in raw_bids:
                 try:
@@ -315,7 +352,7 @@ class StandardAPIOrderBookDataSource(OrderBookTrackerDataSource):
                 except (ValueError, TypeError) as e:
                     self.logger().warning(f"⚠️ Invalid bid data format: {bid}, error: {e}")
                     continue
-            
+
             # Process asks
             for ask in raw_asks:
                 try:
@@ -326,15 +363,15 @@ class StandardAPIOrderBookDataSource(OrderBookTrackerDataSource):
                 except (ValueError, TypeError) as e:
                     self.logger().warning(f"⚠️ Invalid ask data format: {ask}, error: {e}")
                     continue
-            
+
             # Sort bids (highest price first) and asks (lowest price first)
             bids.sort(key=lambda x: x[0], reverse=True)
             asks.sort(key=lambda x: x[0])
-            
+
             self.logger().info(f"📊 Processed order book: {len(bids)} bids, {len(asks)} asks")
             self.logger().debug(f"📈 Top bids: {bids[:5]}")
             self.logger().debug(f"📉 Top asks: {asks[:5]}")
-            
+
             # Return in expected format for order book processing
             order_book_data = {
                 "symbol": trading_pair,
@@ -344,29 +381,32 @@ class StandardAPIOrderBookDataSource(OrderBookTrackerDataSource):
                 "mktPrice": response.get("mktPrice", 0),  # Include market price if available
                 "source": "standardweb3"
             }
-            
-            self.logger().info(f"🎯 Successfully fetched REAL order book data for {trading_pair} using StandardWeb3")
+
+            success_msg = f"🎯 Successfully fetched REAL order book data for {trading_pair} using StandardWeb3"
+            self.logger().info(success_msg)
             return order_book_data
-            
+
         else:
             raise ValueError(f"Invalid StandardWeb3 response format for {trading_pair}: {response}")
 
-    async def _fetch_via_rest_api(self, base_address: str, quote_address: str, trading_pair: str, base_url: str) -> Dict[str, Any]:
+    async def _fetch_via_rest_api(
+        self, base_address: str, quote_address: str, trading_pair: str, base_url: str
+    ) -> Dict[str, Any]:
         """
         Fetch order book data using direct REST API calls as fallback.
-        
+
         Args:
             base_address: Base token address
             quote_address: Quote token address
             trading_pair: Trading pair name
             base_url: REST API base URL
-            
+
         Returns:
             Order book data in standardized format
         """
         # Get REST assistant for making HTTP requests
         rest_assistant = await self._api_factory.get_rest_assistant()
-        
+
         # Prepare the API endpoint for order book ticks
         # Format: /api/orderbook/ticks/{base}/{quote}/{limit}
         limit = 20  # Get top 20 levels
@@ -374,9 +414,9 @@ class StandardAPIOrderBookDataSource(OrderBookTrackerDataSource):
         # Remove trailing slash from base_url if present to avoid double slash
         base_url = base_url.rstrip("/")
         url = f"{base_url}/{endpoint}"
-        
+
         self.logger().info(f"🌐 Making REST API call to: {url}")
-        
+
         # Make the API call to Somnia REST endpoint
         response = await rest_assistant.execute_request(
             url=url,
@@ -384,17 +424,19 @@ class StandardAPIOrderBookDataSource(OrderBookTrackerDataSource):
             headers={"Content-Type": "application/json"},
             throttler_limit_id=CONSTANTS.GET_ORDERBOOK_PATH_URL
         )
-        
+
         self.logger().info(f"✅ Received response from REST API for {trading_pair}")
         self.logger().debug(f"📋 Raw API response: {response}")
-        
+
         # Process the response from REST API
         if response and isinstance(response, dict):
             # Check if it's the same format as StandardWeb3 or a different format
             if "bids" in response and "asks" in response:
                 # Same format as StandardWeb3 - process directly
                 self.logger().info("📋 REST API returned StandardWeb3-compatible format")
-                return await self._process_standardweb3_format(response, trading_pair, "rest_api")
+                return await self._process_standardweb3_format(
+                    response, trading_pair, "rest_api"
+                )
             else:
                 # Handle other potential formats here
                 # This could be extended to handle different API response formats
@@ -403,28 +445,30 @@ class StandardAPIOrderBookDataSource(OrderBookTrackerDataSource):
         else:
             raise ValueError(f"Invalid REST API response for {trading_pair}: {response}")
 
-    async def _process_standardweb3_format(self, response: Dict[str, Any], trading_pair: str, source: str) -> Dict[str, Any]:
+    async def _process_standardweb3_format(
+        self, response: Dict[str, Any], trading_pair: str, source: str
+    ) -> Dict[str, Any]:
         """
         Process response data that follows StandardWeb3 format.
-        
+
         Args:
             response: API response data
             trading_pair: Trading pair name
             source: Source of the data ("standardweb3" or "rest_api")
-            
+
         Returns:
             Processed order book data
         """
         raw_bids = response.get("bids", [])
         raw_asks = response.get("asks", [])
-        
+
         if not raw_bids and not raw_asks:
             self.logger().warning(f"⚠️ No order book data returned for {trading_pair} from {source}")
-        
+
         # Process bids and asks
         bids = []
         asks = []
-        
+
         # Process bids
         for bid in raw_bids:
             try:
@@ -435,7 +479,7 @@ class StandardAPIOrderBookDataSource(OrderBookTrackerDataSource):
             except (ValueError, TypeError) as e:
                 self.logger().warning(f"⚠️ Invalid bid data format: {bid}, error: {e}")
                 continue
-        
+
         # Process asks
         for ask in raw_asks:
             try:
@@ -446,15 +490,15 @@ class StandardAPIOrderBookDataSource(OrderBookTrackerDataSource):
             except (ValueError, TypeError) as e:
                 self.logger().warning(f"⚠️ Invalid ask data format: {ask}, error: {e}")
                 continue
-        
+
         # Sort bids (highest price first) and asks (lowest price first)
         bids.sort(key=lambda x: x[0], reverse=True)
         asks.sort(key=lambda x: x[0])
-        
+
         self.logger().info(f"📊 Processed order book from {source}: {len(bids)} bids, {len(asks)} asks")
         self.logger().debug(f"📈 Top bids: {bids[:5]}")
         self.logger().debug(f"📉 Top asks: {asks[:5]}")
-        
+
         # Return in expected format for order book processing
         order_book_data = {
             "symbol": trading_pair,
@@ -464,18 +508,18 @@ class StandardAPIOrderBookDataSource(OrderBookTrackerDataSource):
             "mktPrice": response.get("mktPrice", 0),  # Include market price if available
             "source": source
         }
-        
+
         self.logger().info(f"🎯 Successfully fetched REAL order book data for {trading_pair} using {source}")
         return order_book_data
 
     async def _parse_order_book_diff_message(
-        self, 
-        raw_message: Dict[str, Any], 
+        self,
+        raw_message: Dict[str, Any],
         message_queue: asyncio.Queue
     ):
         """
         Parse order book differential update message.
-        
+
         Args:
             raw_message: Raw message from WebSocket
             message_queue: Queue to put parsed message
@@ -485,13 +529,13 @@ class StandardAPIOrderBookDataSource(OrderBookTrackerDataSource):
         pass
 
     async def _parse_trade_message(
-        self, 
-        raw_message: Dict[str, Any], 
+        self,
+        raw_message: Dict[str, Any],
         message_queue: asyncio.Queue
     ):
         """
         Parse trade message from WebSocket.
-        
+
         Args:
             raw_message: Raw trade message
             message_queue: Queue to put parsed message
@@ -503,10 +547,10 @@ class StandardAPIOrderBookDataSource(OrderBookTrackerDataSource):
     def _channel_originating_message(self, event_message: Dict[str, Any]) -> str:
         """
         Determine which channel an event message originated from.
-        
+
         Args:
             event_message: Event message
-            
+
         Returns:
             Channel name
         """
@@ -529,7 +573,7 @@ class StandardAPIOrderBookDataSource(OrderBookTrackerDataSource):
     async def listen_for_order_book_snapshots(self, ev_loop: asyncio.AbstractEventLoop, output: asyncio.Queue):
         """
         Listen for order book snapshots by polling the REST API.
-        
+
         Args:
             ev_loop: Event loop
             output: Queue to put order book messages
@@ -537,11 +581,11 @@ class StandardAPIOrderBookDataSource(OrderBookTrackerDataSource):
         self.logger().info("DEBUG: listen_for_order_book_snapshots() method called!")
         self.logger().info("Starting order book snapshot listener for Somnia")
         self.logger().info(f"Trading pairs to track: {self._trading_pairs}")
-        
+
         while True:
             try:
                 self.logger().debug("DEBUG: Polling for order book snapshots...")
-                
+
                 for trading_pair in self._trading_pairs:
                     try:
                         self.logger().info(f"DEBUG: Getting order book snapshot for {trading_pair}")
@@ -551,17 +595,81 @@ class StandardAPIOrderBookDataSource(OrderBookTrackerDataSource):
                         self.logger().info(f"DEBUG: Successfully put order book snapshot for {trading_pair} in queue")
                     except Exception as e:
                         self.logger().error(f"DEBUG: Error getting order book snapshot for {trading_pair}: {e}")
-                
+
                 # Wait before next poll (5 seconds)
                 self.logger().debug("DEBUG: Waiting 5 seconds before next poll...")
                 await asyncio.sleep(5.0)
-                
+
             except asyncio.CancelledError:
                 self.logger().info("DEBUG: Order book snapshot listener cancelled")
                 break
             except Exception as e:
                 self.logger().error(f"DEBUG: Error in order book snapshot listener: {e}")
                 await asyncio.sleep(5.0)  # Wait before retrying
+
+    async def _get_last_trade_from_api(self, trading_pair: str) -> Optional[float]:
+        """
+        Get the last trade price from the API using mktPrice from fetch_orderbook_ticks.
+
+        Args:
+            trading_pair: Trading pair (e.g., SOMI-USDC)
+
+        Returns:
+            Last trade price or None if no trades found
+        """
+        try:
+            if self._standard_client is None:
+                warning_msg = "StandardWeb3 client not initialized, cannot fetch trade history"
+                self.logger().warning(warning_msg)
+                return None
+
+            # Convert trading pair to contract addresses
+            base_asset, quote_asset = trading_pair.split('-')
+
+            # Get token addresses from constants
+            from .standard_constants import get_token_addresses
+            token_addresses = get_token_addresses(self._domain)
+            base_address = token_addresses.get(base_asset)
+            quote_address = token_addresses.get(quote_asset)
+
+            if not base_address or not quote_address:
+                self.logger().warning(f"Token addresses not found for {trading_pair}")
+                return None
+
+            fetch_msg = (
+                f"🔍 Fetching mktPrice for {trading_pair}: "
+                f"{base_asset}({base_address}) / {quote_asset}({quote_address})"
+            )
+            self.logger().info(fetch_msg)
+
+            # Use fetch_orderbook_ticks to get mktPrice (this is the most reliable price)
+            try:
+                self.logger().info("🎯 Getting mktPrice from fetch_orderbook_ticks")
+                response = await self._standard_client.fetch_orderbook_ticks(
+                    base=base_address,
+                    quote=quote_address,
+                    limit=5  # Small limit since we only need the market price
+                )
+
+                if response and isinstance(response, dict):
+                    # Use mktPrice as the last trade price
+                    mkt_price = response.get("mktPrice")
+                    if mkt_price and isinstance(mkt_price, (int, float)) and mkt_price > 0:
+                        self.logger().info(f"✅ Using mktPrice as last trade price for {trading_pair}: {mkt_price}")
+                        return float(mkt_price)
+                    else:
+                        self.logger().warning(f"⚠️ Invalid or missing mktPrice: {mkt_price}")
+                else:
+                    self.logger().warning(f"⚠️ Invalid response from fetch_orderbook_ticks: {response}")
+
+            except Exception as e:
+                self.logger().warning(f"⚠️ Could not get mktPrice from fetch_orderbook_ticks: {e}")
+
+            return None  # No price data available
+
+        except Exception as e:
+            self.logger().error(f"❌ Error fetching mktPrice for {trading_pair}: {e}")
+            return None
 
     async def listen_for_order_book_diffs(self, ev_loop: asyncio.AbstractEventLoop, output: asyncio.Queue):
         """
@@ -598,7 +706,7 @@ class StandardAPIOrderBookDataSource(OrderBookTrackerDataSource):
     async def _subscribe_channels(self, ws_assistant) -> None:
         """
         Subscribe to WebSocket channels for order book and trade data.
-        
+
         Args:
             ws_assistant: WebSocket assistant
         """
@@ -609,7 +717,7 @@ class StandardAPIOrderBookDataSource(OrderBookTrackerDataSource):
     async def _process_websocket_messages(self, websocket_assistant) -> None:
         """
         Process incoming WebSocket messages.
-        
+
         Args:
             websocket_assistant: WebSocket assistant
         """
