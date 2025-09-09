@@ -900,7 +900,7 @@ cdef class PureMarketMakingStrategy(StrategyBase):
         bid_ask_ratios = c_calculate_bid_ask_ratios_from_base_asset_ratio(
             float(base_balance),
             float(quote_balance),
-            float(self.get_price()),
+            float(self.s()),
             float(self._inventory_target_base_pct),
             float(total_order_size * self._inventory_range_multiplier)
         )
@@ -1230,7 +1230,7 @@ cdef class PureMarketMakingStrategy(StrategyBase):
         for order in active_orders:
             negation = -1 if order.is_buy else 1
             if (negation * (order.price - price) / price) < self._minimum_spread:
-                self.logger().info(f"Order is below minimum spread ({self._minimum_spread})."
+                self.logger().info(f"Order is below minimum spread (order.price {order.price} - price {price} - {self._minimum_spread})."
                                    f" Canceling Order: ({'Buy' if order.is_buy else 'Sell'}) "
                                    f"ID - {order.client_order_id}")
                 self.c_cancel_order(self._market_info, order.client_order_id)
