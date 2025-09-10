@@ -2562,6 +2562,9 @@ class StandardExchange(ExchangePyBase):
             # Check if we should execute the batch immediately
             if len(self._batch_queue) >= BATCH_SIZE_THRESHOLD:
                 self.logger().info(f"🚀 Batch size threshold reached ({BATCH_SIZE_THRESHOLD}), executing batch now")
+                # Cancel any running timer before executing
+                if self._batch_timer_task and not self._batch_timer_task.done():
+                    self._batch_timer_task.cancel()
                 await self._execute_batch_orders()
             else:
                 # Start or reset the batch timer
@@ -2599,10 +2602,16 @@ class StandardExchange(ExchangePyBase):
         Execute all orders in the batch queue using standardweb3 create_orders.
         """
         if not self._batch_queue:
+            self.logger().info("📭 No orders in batch queue, skipping execution")
             return
 
         orders_to_process = self._batch_queue.copy()
         self._batch_queue.clear()
+
+        # Cancel any running timer since we're executing now
+        if self._batch_timer_task and not self._batch_timer_task.done():
+            self._batch_timer_task.cancel()
+            self.logger().info("⏹️ Cancelled batch timer (executing batch now)")
 
         self.logger().info(f"🚀 Executing batch of {len(orders_to_process)} orders")
 
@@ -2623,9 +2632,16 @@ class StandardExchange(ExchangePyBase):
 
             # Use standardweb3 create_orders method for batch execution
             if self._standard_client and hasattr(self._standard_client, 'create_orders'):
+                self.logger().info(f"✅ StandardWeb3 client available with create_orders method")
                 batch_result = await self._execute_batch_with_standardweb3(flight_orders)
                 self.logger().info(f"✅ Batch execution completed: {batch_result}")
             else:
+                if not self._standard_client:
+                    self.logger().error("❌ StandardWeb3 client not initialized!")
+                elif not hasattr(self._standard_client, 'create_orders'):
+                    self.logger().error("❌ StandardWeb3 client missing create_orders method!")
+                    self.logger().error(f"❌ Available methods: {[m for m in dir(self._standard_client) if not m.startswith('_')]}")
+
                 # Fallback to individual order placement if standardweb3 not available
                 self.logger().warning("StandardWeb3 not available, falling back to individual order placement")
                 for order_data in orders_to_process:
@@ -2651,6 +2667,12 @@ class StandardExchange(ExchangePyBase):
                 except Exception as individual_error:
                     self.logger().error(f"Error in fallback placement for {order_data['order_id']}: {individual_error}")
 
+        finally:
+            # Ensure batch system is ready for next round
+            self.logger().info(f"🏁 Batch execution cycle completed. Queue cleared, ready for next batch.")
+            # Timer should already be cancelled, but ensure it's reset
+            self._batch_timer_task = None
+
     async def _execute_batch_with_standardweb3(self, orders: List[InFlightOrder]):
         """
         Execute batch orders using standardweb3 create_orders method.
@@ -2658,28 +2680,73 @@ class StandardExchange(ExchangePyBase):
         try:
             self.logger().info(f"🔄 Using standardweb3.create_orders for {len(orders)} orders")
 
-            # Prepare orders for standardweb3
+            # Prepare orders for standardweb3 based on the official example format
             orders_data = []
-            for order in orders:
-                base, quote = utils.split_trading_pair(order.trading_pair)
+            for i, order in enumerate(orders):
+                self.logger().info(f"📋 Processing order {i + 1}/{len(orders)}: {order.client_order_id}")
+
+                # Split trading pair and convert to addresses
+                base, quote = order.trading_pair.split("-")
+                self.logger().info(f"  - Trading pair: {order.trading_pair} -> base={base}, quote={quote}")
+
                 base_address = utils.convert_symbol_to_address(base, self._domain)
                 quote_address = utils.convert_symbol_to_address(quote, self._domain)
+                self.logger().info(f"  - Token addresses: base={base_address}, quote={quote_address}")
 
-                orders_data.append({
-                    'is_buy': order.trade_type == TradeType.BUY,
-                    'base_token': base_address,
-                    'quote_token': quote_address,
-                    'amount': order.amount,
-                    'price': order.price,
-                    'client_order_id': order.client_order_id
-                })
+                # Convert to Wei format using client.w3.to_wei() exactly like working example
+                amount_wei = self._standard_client.w3.to_wei(float(order.amount), "ether")
+                price_wei = self._standard_client.w3.to_wei(float(order.price), "ether")
 
-            # Call standardweb3 create_orders
-            result = self._standard_client.create_orders(orders_data)
-            self.logger().info(f"✅ Batch created successfully via standardweb3: {result}")
+                self.logger().info(f"  - Amount: {order.amount} -> {amount_wei} Wei")
+                self.logger().info(f"  - Price: {order.price} -> {price_wei} Wei")
+
+                # Convert orderId from hex string to integer (like successful test)
+                # Use last 12 characters of client_order_id as hex
+                order_id_hex = order.client_order_id[-12:]
+                try:
+                    order_id_int = int(order_id_hex, 16)
+                except ValueError:
+                    # Fallback: use hash of client_order_id
+                    order_id_int = abs(hash(order.client_order_id)) % (2**32)
+
+                self.logger().info(f"  - OrderId: {order.client_order_id} -> {order_id_hex} -> {order_id_int}")
+
+                order_entry = {
+                    'base': base_address,
+                    'quote': quote_address,
+                    'isBid': order.trade_type == TradeType.BUY,
+                    'isLimit': True,  # Assuming all batch orders are limit orders
+                    'isETH': False,   # Required field for ERC20 trading
+                    'amount': amount_wei,     # Wei format as string
+                    'price': price_wei,       # Wei format as string
+                    'orderId': order_id_int,  # Integer ID
+                    'n': 2,                   # Max orders to match (was 0)
+                    'recipient': self._wallet_address,  # Recipient address
+                }
+
+                # Log the actual values for debugging
+                self.logger().info(f"  - TradeType conversion: {order.trade_type} -> isBid={order.trade_type == TradeType.BUY}")
+                self.logger().info(f"  - Order data: {order_entry}")
+                orders_data.append(order_entry)
+
+            self.logger().info(f"📤 Sending batch request to standardweb3.create_orders:")
+            self.logger().info(f"  - Total orders: {len(orders_data)}")
+            self.logger().info(f"  - Full payload: {orders_data}")
+
+            # Additional debugging - check each field type and length
+            for i, order_data in enumerate(orders_data):
+                self.logger().info(f"📋 Order {i + 1} field analysis:")
+                for key, value in order_data.items():
+                    self.logger().info(f"    {key}: {value} (type: {type(value)}, len: {len(str(value)) if isinstance(value, (str, list, dict)) else 'N/A'})")
+
+            # Call standardweb3 create_orders - AWAIT the coroutine
+            result = await self._standard_client.create_orders(orders_data)
+            self.logger().info(f"✅ Batch created successfully via standardweb3!")
+            self.logger().info(f"📥 Response: {result}")
 
             # Start tracking all orders
             for order in orders:
+                self.logger().info(f"🔍 Starting to track order: {order.client_order_id}")
                 self.start_tracking_order(
                     order_id=order.client_order_id,
                     exchange_order_id=None,  # Will be updated when we get the response
@@ -2689,11 +2756,21 @@ class StandardExchange(ExchangePyBase):
                     price=order.price,
                     amount=order.amount,
                 )
+                self.logger().info(f"✅ Order tracking started for: {order.client_order_id}")
 
             return result
 
         except Exception as e:
-            self.logger().error(f"Error in standardweb3 batch execution: {e}")
+            self.logger().error(f"❌ Error in standardweb3 batch execution: {e}")
+            self.logger().error(f"❌ Error type: {type(e)}")
+            self.logger().error(f"❌ Error args: {e.args if hasattr(e, 'args') else 'No args'}")
+
+            # Log more details about the orders that failed
+            self.logger().error(f"❌ Failed batch details:")
+            self.logger().error(f"  - Number of orders: {len(orders)}")
+            for i, order in enumerate(orders):
+                self.logger().error(f"  - Order {i + 1}: {order.client_order_id} ({order.trading_pair}, {order.trade_type}, {order.amount}@{order.price})")
+
             raise
 
     async def _place_individual_order(
