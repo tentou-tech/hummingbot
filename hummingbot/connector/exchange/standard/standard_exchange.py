@@ -52,11 +52,15 @@ from hummingbot.connector.exchange.standard import (
 from hummingbot.connector.exchange.standard.standard_api_order_book_data_source import StandardAPIOrderBookDataSource
 from hummingbot.connector.exchange.standard.standard_api_user_stream_data_source import StandardAPIUserStreamDataSource
 from hummingbot.connector.exchange.standard.standard_auth import StandardAuth
-from hummingbot.connector.exchange.standard.standard_constants import MAX_ORDERS_TO_MATCH
+from hummingbot.connector.exchange.standard.standard_constants import (
+    BATCH_SIZE_THRESHOLD,
+    BATCH_TIMEOUT_SECONDS,
+    MAX_ORDERS_TO_MATCH,
+)
 from hummingbot.connector.exchange_py_base import ExchangePyBase
 from hummingbot.connector.trading_rule import TradingRule
 from hummingbot.connector.utils import combine_to_hb_trading_pair
-from hummingbot.core.data_type.common import OrderType, TradeType, PriceType
+from hummingbot.core.data_type.common import OrderType, PriceType, TradeType
 from hummingbot.core.data_type.in_flight_order import InFlightOrder, OrderState, OrderUpdate, TradeUpdate
 from hummingbot.core.data_type.order_book_tracker_data_source import OrderBookTrackerDataSource
 from hummingbot.core.data_type.trade_fee import AddedToCostTradeFee, TokenAmount, TradeFeeBase
@@ -301,6 +305,25 @@ class StandardExchange(ExchangePyBase):
         self._balance_refresh_interval = 45.0  # Refresh every 45 seconds
         self._last_balance_refresh = 0.0  # Timestamp of last balance refresh
         self._balance_refresh_on_error = True  # Whether to refresh balances after order failures
+
+        # 📦 PHASE 3: Add batch order queue infrastructure
+        import os
+
+        from dotenv import load_dotenv
+        load_dotenv()
+
+        self._batch_orders_enabled = os.getenv('USING_BATCH_ORDER', 'false').lower() in ['true', '1', 'yes']
+        self._batch_queue: List[Dict] = []  # Queue of orders waiting to be batched
+        self._batch_timer_task: Optional[asyncio.Task] = None  # Timer task for batch execution
+        self._batch_lock = asyncio.Lock()  # Lock for thread-safe batch operations
+
+        if self._batch_orders_enabled:
+            self.logger().info(f"📦 Batch order system enabled:")
+            self.logger().info(f"  - Batch size threshold: {BATCH_SIZE_THRESHOLD} orders")
+            self.logger().info(f"  - Batch timeout: {BATCH_TIMEOUT_SECONDS} seconds")
+            self.logger().info("  - Orders will be queued and executed in batches for improved efficiency")
+        else:
+            self.logger().info("Individual order placement enabled - batch system disabled")
 
         self.logger().info("DEBUG: Transaction tracking infrastructure initialized")
         self.logger().info("DEBUG: Periodic balance refresh infrastructure initialized")
@@ -1577,7 +1600,7 @@ class StandardExchange(ExchangePyBase):
                         "minNotional": "1.0",
                         "status": "TRADING",
                     }
-                    
+
                     # 🔍 DEBUG: Log hardcoded trading rule (this method may override our fix!)
                     self.logger().warning(f"🔍 HARDCODED RULE WARNING: {symbol}")
                     self.logger().warning(f"   - Using hardcoded tickSize: 0.001")
@@ -2038,22 +2061,22 @@ class StandardExchange(ExchangePyBase):
     def get_price_by_type(self, trading_pair: str, price_type: PriceType) -> Decimal:
         """
         Override to use fresh mktPrice from order book data instead of dangerous fallbacks.
-        
+
         🔥 SOLUTION: Use the mktPrice that's already fetched by the data source during order book updates.
         🚨 NO EVENT LOOP ISSUES - no fresh API calls, just use existing data.
         🚨 NO MID-PRICE FALLBACKS - DEX order books have corrupted ask prices.
         """
-        
+
         self.logger().info(f"🔍 PRICE REQUEST: get_price_by_type({trading_pair}, {price_type})")
-        
+
         if price_type is PriceType.LastTrade:
             self.logger().info(f"🎯 LastTrade price requested for {trading_pair}")
-            
+
             try:
                 # Strategy 1: Get mktPrice from the most recent order book data
                 if hasattr(self, '_order_book_tracker') and hasattr(self._order_book_tracker, 'data_source'):
                     data_source = self._order_book_tracker.data_source
-                    
+
                     # Check if we have access to the latest API response data
                     if hasattr(data_source, '_latest_api_response'):
                         latest_response = data_source._latest_api_response
@@ -2063,7 +2086,7 @@ class StandardExchange(ExchangePyBase):
                                 result = Decimal(str(mkt_price))
                                 self.logger().info(f"✅ Using latest mktPrice for {trading_pair}: {result}")
                                 return result
-                
+
                 # Strategy 2: Try to get mktPrice from order book last_trade_price if it was set
                 order_book = self.get_order_book(trading_pair)
                 if order_book is not None and hasattr(order_book, 'last_trade_price'):
@@ -2071,7 +2094,7 @@ class StandardExchange(ExchangePyBase):
                     if last_trade_price and not last_trade_price.is_nan() and last_trade_price > 0:
                         self.logger().info(f"✅ Using order book last_trade_price for {trading_pair}: {last_trade_price}")
                         return last_trade_price
-                
+
                 # Strategy 3: Use reasonable bid-based pricing to avoid corrupted asks
                 best_bid = self.get_price(trading_pair, False)  # False = bid
                 if not best_bid.is_nan() and best_bid > 0:
@@ -2079,19 +2102,20 @@ class StandardExchange(ExchangePyBase):
                     reasonable_price = best_bid * Decimal("1.001")  # Bid + 0.1%
                     self.logger().info(f"✅ Using bid-based price for {trading_pair}: {reasonable_price}")
                     return reasonable_price
-                
+
                 self.logger().error(f"❌ No valid price source available for {trading_pair}")
                 raise ValueError(f"No price source available for {trading_pair}")
-                
+
             except Exception as e:
                 self.logger().error(f"💥 Failed to get LastTrade price for {trading_pair}: {e}")
                 raise Exception(f"LastTrade pricing failed for {trading_pair}: {e}")
         else:
-            # Use base implementation for other price types  
+            # Use base implementation for other price types
             self.logger().info(f"🔄 Using base implementation for price type: {price_type}")
             result = super().get_price_by_type(trading_pair, price_type)
             self.logger().info(f"✅ Base implementation returned: {result}")
             return result
+
     async def _make_trading_rules_request(self) -> Any:
         """
         Make request to get trading rules.
@@ -2123,7 +2147,7 @@ class StandardExchange(ExchangePyBase):
                 "minNotional": str(CONSTANTS.MIN_ORDER_SIZE),
                 "status": "TRADING",
             }
-            
+
             # 🔍 DEBUG: Log the trading rule values
             tick_size_value = str(Decimal("1e-{}".format(CONSTANTS.CONTRACT_PRICE_DECIMALS)))
             self.logger().info(f"🔍 TRADING RULE DEBUG: {trading_pair}")
@@ -2290,7 +2314,7 @@ class StandardExchange(ExchangePyBase):
                 # For buy orders, need allowance for quote token (USDC)
                 token_address = quote_address
                 quote_decimals = utils.get_token_decimals(utils.convert_address_to_symbol(quote_address, self._domain))
-                required_amount =(amount * price) * (10**quote_decimals)
+                required_amount = (amount * price) * (10**quote_decimals)
                 token_symbol = utils.convert_address_to_symbol(quote_address, self._domain)
             else:
                 # For sell orders, need allowance for base token (SOMI)
@@ -2496,7 +2520,7 @@ class StandardExchange(ExchangePyBase):
         **kwargs,
     ) -> Tuple[str, float]:
         """
-        Place an order on the exchange.
+        Place an order on the exchange, using batch queue system when enabled.
 
         Args:
             order_id: Client order ID
@@ -2510,6 +2534,315 @@ class StandardExchange(ExchangePyBase):
         Returns:
             Tuple of (exchange_order_id, timestamp)
         """
+        # Check if batch orders are enabled and queue this order
+        if self._batch_orders_enabled:
+            return await self._queue_order_for_batch(
+                order_id, trading_pair, amount, trade_type, order_type, price, **kwargs
+            )
+        else:
+            # Use traditional individual order placement
+            return await self._place_individual_order(
+                order_id, trading_pair, amount, trade_type, order_type, price, **kwargs
+            )
+
+    async def _queue_order_for_batch(
+        self,
+        order_id: str,
+        trading_pair: str,
+        amount: Decimal,
+        trade_type: TradeType,
+        order_type: OrderType,
+        price: Decimal,
+        **kwargs,
+    ) -> Tuple[str, float]:
+        """
+        Queue an order for batch execution.
+        """
+        async with self._batch_lock:
+            # Create order data for the queue
+            order_data = {
+                'order_id': order_id,
+                'trading_pair': trading_pair,
+                'amount': amount,
+                'trade_type': trade_type,
+                'order_type': order_type,
+                'price': price,
+                'timestamp': time.time(),
+                'kwargs': kwargs
+            }
+
+            self._batch_queue.append(order_data)
+            self.logger().info(f"📦 Queued order {order_id} for batch execution ({len(self._batch_queue)}/{BATCH_SIZE_THRESHOLD})")
+
+            # Check if we should execute the batch immediately
+            if len(self._batch_queue) >= BATCH_SIZE_THRESHOLD:
+                self.logger().info(f"🚀 Batch size threshold reached ({BATCH_SIZE_THRESHOLD}), executing batch now")
+                await self._execute_batch_orders()
+            else:
+                # Start or reset the batch timer
+                await self._start_batch_timer()
+
+            # Return a placeholder - the actual order will be executed in batch
+            return f"batch:{order_id}", time.time()
+
+    async def _start_batch_timer(self):
+        """
+        Start or restart the batch timer.
+        """
+        # Cancel existing timer if running
+        if self._batch_timer_task and not self._batch_timer_task.done():
+            self._batch_timer_task.cancel()
+
+        # Start new timer
+        self._batch_timer_task = asyncio.create_task(self._batch_timer())
+
+    async def _batch_timer(self):
+        """
+        Timer task that executes batch after timeout.
+        """
+        try:
+            await asyncio.sleep(BATCH_TIMEOUT_SECONDS)
+            async with self._batch_lock:
+                if self._batch_queue:  # Only execute if there are orders waiting
+                    self.logger().info(f"⏰ Batch timeout reached ({BATCH_TIMEOUT_SECONDS}s), executing {len(self._batch_queue)} queued orders")
+                    await self._execute_batch_orders()
+        except asyncio.CancelledError:
+            pass  # Timer was cancelled, this is normal
+
+    async def _execute_batch_orders(self):
+        """
+        Execute all orders in the batch queue using standardweb3 create_orders.
+        """
+        if not self._batch_queue:
+            return
+
+        orders_to_process = self._batch_queue.copy()
+        self._batch_queue.clear()
+
+        self.logger().info(f"🚀 Executing batch of {len(orders_to_process)} orders")
+
+        try:
+            # Convert queue orders to InFlightOrder objects
+            flight_orders = []
+            for order_data in orders_to_process:
+                flight_order = InFlightOrder(
+                    client_order_id=order_data['order_id'],
+                    trading_pair=order_data['trading_pair'],
+                    order_type=order_data['order_type'],
+                    trade_type=order_data['trade_type'],
+                    amount=order_data['amount'],
+                    price=order_data['price'],
+                    creation_timestamp=order_data['timestamp']
+                )
+                flight_orders.append(flight_order)
+
+            # Use standardweb3 create_orders method for batch execution
+            if self._standard_client and hasattr(self._standard_client, 'create_orders'):
+                batch_result = await self._execute_batch_with_standardweb3(flight_orders)
+                self.logger().info(f"✅ Batch execution completed: {batch_result}")
+            else:
+                # Fallback to individual order placement if standardweb3 not available
+                self.logger().warning("StandardWeb3 not available, falling back to individual order placement")
+                for order_data in orders_to_process:
+                    try:
+                        await self._place_individual_order(
+                            order_data['order_id'], order_data['trading_pair'], order_data['amount'],
+                            order_data['trade_type'], order_data['order_type'], order_data['price'],
+                            **order_data['kwargs']
+                        )
+                    except Exception as e:
+                        self.logger().error(f"Error placing individual order {order_data['order_id']}: {e}")
+
+        except Exception as e:
+            self.logger().error(f"Error executing batch orders: {e}")
+            # On batch failure, try individual placement as fallback
+            for order_data in orders_to_process:
+                try:
+                    await self._place_individual_order(
+                        order_data['order_id'], order_data['trading_pair'], order_data['amount'],
+                        order_data['trade_type'], order_data['order_type'], order_data['price'],
+                        **order_data['kwargs']
+                    )
+                except Exception as individual_error:
+                    self.logger().error(f"Error in fallback placement for {order_data['order_id']}: {individual_error}")
+
+    async def _execute_batch_with_standardweb3(self, orders: List[InFlightOrder]):
+        """
+        Execute batch orders using standardweb3 create_orders method.
+        """
+        try:
+            self.logger().info(f"🔄 Using standardweb3.create_orders for {len(orders)} orders")
+
+            # Prepare orders for standardweb3
+            orders_data = []
+            for order in orders:
+                base, quote = utils.split_trading_pair(order.trading_pair)
+                base_address = utils.convert_symbol_to_address(base, self._domain)
+                quote_address = utils.convert_symbol_to_address(quote, self._domain)
+
+                orders_data.append({
+                    'is_buy': order.trade_type == TradeType.BUY,
+                    'base_token': base_address,
+                    'quote_token': quote_address,
+                    'amount': order.amount,
+                    'price': order.price,
+                    'client_order_id': order.client_order_id
+                })
+
+            # Call standardweb3 create_orders
+            result = self._standard_client.create_orders(orders_data)
+            self.logger().info(f"✅ Batch created successfully via standardweb3: {result}")
+
+            # Start tracking all orders
+            for order in orders:
+                self.start_tracking_order(
+                    order_id=order.client_order_id,
+                    exchange_order_id=None,  # Will be updated when we get the response
+                    trading_pair=order.trading_pair,
+                    order_type=order.order_type,
+                    trade_type=order.trade_type,
+                    price=order.price,
+                    amount=order.amount,
+                )
+
+            return result
+
+        except Exception as e:
+            self.logger().error(f"Error in standardweb3 batch execution: {e}")
+            raise
+
+    async def _place_individual_order(
+        self,
+        order_id: str,
+        trading_pair: str,
+        amount: Decimal,
+        trade_type: TradeType,
+        order_type: OrderType,
+        price: Decimal,
+        **kwargs,
+    ) -> Tuple[str, float]:
+        """
+        Place an individual order (original _place_order logic).
+        """
+        try:
+            self.logger().info("DEBUG: _place_individual_order called with:")
+            self.logger().info(f"  - order_id: {order_id}")
+            self.logger().info(f"  - trading_pair: {trading_pair}")
+            self.logger().info(f"  - amount: {amount}")
+            self.logger().info(f"  - trade_type: {trade_type}")
+            self.logger().info(f"  - order_type: {order_type}")
+            self.logger().info(f"  - price: {price}")
+
+            # Use cached balance data from startup - no need to update before every order
+            # Balance updates happen at startup and can be refreshed on-demand if needed
+            self.logger().info("Using cached balance data for order placement...")
+
+            base, quote = utils.split_trading_pair(trading_pair)
+            base_address = utils.convert_symbol_to_address(base, self._domain)
+            quote_address = utils.convert_symbol_to_address(quote, self._domain)
+
+            if not base_address or not quote_address:
+                raise ValueError(f"Could not get token addresses for {trading_pair}")
+
+            # Determine if this is a buy order
+            is_buy = trade_type == TradeType.BUY
+
+            # Convert amounts to blockchain format
+            base_decimals = utils.get_token_decimals(base)
+            quote_decimals = utils.get_token_decimals(quote)
+
+            # Check and ensure token allowances before placing order
+            await self._ensure_token_allowances(base_address, quote_address, amount, price, is_buy)
+
+            # Check token balances before placing order
+            await self._check_sufficient_balance(base_address, quote_address, amount, price, is_buy)
+
+            if order_type == OrderType.MARKET:
+                # For market orders, we'll place a limit order at a price that should execute immediately
+                # Use configurable slippage - default 0.3% for arbitrage strategies
+                market_slippage = Decimal("0.003")  # 0.3% default - much better for arbitrage
+
+                if is_buy:
+                    # Buy at a higher price to ensure execution
+                    execution_price = price * (Decimal("1") + market_slippage)
+                    self.logger().info(f"🔥 MARKET BUY: {amount} {base} at {execution_price} ({market_slippage * 100}% slippage)")
+                else:
+                    # Sell at a lower price to ensure execution
+                    execution_price = price * (Decimal("1") - market_slippage)
+                    self.logger().info(f"🔥 MARKET SELL: {amount} {base} at {execution_price} ({market_slippage * 100}% slippage)")
+            else:
+                execution_price = price
+
+            # Use transaction lock to prevent nonce conflicts between multiple orders
+            async with self._transaction_lock:
+                # Get current nonce for the account to avoid "nonce too low" errors
+                current_nonce = await self._get_current_nonce()
+
+                self.logger().info("DEBUG: About to call _place_order_direct_contract with:")
+                self.logger().info(f"  - is_buy: {is_buy}")
+                self.logger().info(f"  - base: {base} -> {base_address}")
+                self.logger().info(f"  - quote: {quote} -> {quote_address}")
+                self.logger().info(f"  - amount: {amount}")
+                self.logger().info(f"  - execution_price: {execution_price}")
+
+                # ===== APPROACH SELECTION =====
+                # NEW: Use StandardWeb3 with fallback to direct contract method
+                # This provides order IDs when StandardWeb3 works, with reliable fallback
+
+                self.logger().info("🔄 Trying StandardWeb3 for order placement...")
+
+                try:
+                    # Create InFlightOrder for StandardWeb3 method
+                    temp_order = InFlightOrder(
+                        client_order_id=order_id,
+                        trading_pair=trading_pair,
+                        order_type=order_type,
+                        trade_type=trade_type,
+                        amount=amount,
+                        price=execution_price,
+                        creation_timestamp=time.time()
+                    )
+
+                    # Place order via StandardWeb3 and get both tx_hash and order_id
+                    tx_hash, blockchain_order_id = await self._place_order_with_standardweb3(temp_order)
+
+                    # Store the blockchain order ID for cancellation (this is the key improvement!)
+                    self.logger().info(f"📝 Storing blockchain order ID {blockchain_order_id} for order {order_id}")
+
+                    # We'll store this in the tracked order's exchange_order_id as a combined identifier
+                    # Format: "tx_hash:order_id" so we can extract both later
+                    result = f"{tx_hash}:{blockchain_order_id}"
+
+                except Exception as e:
+                    if "parsing bug" in str(e) or "base" in str(e):
+                        self.logger().warning(f"🔄 StandardWeb3 failed ({e}), falling back to direct contract method...")
+
+                        # Fallback to direct contract method
+                        # result, _ = await self._place_order_direct_contract(
+                        #     order_id, trading_pair, amount, trade_type, order_type, execution_price, is_buy,
+                        #     base, base_address, quote, quote_address, base_decimals, quote_decimals
+                        # )
+                    else:
+                        # Other errors should be propagated
+                        raise
+
+            # Handle return value - could be tuple (tx_hash, timestamp) or just tx_hash/combined_id
+            if isinstance(result, tuple) and len(result) == 2:
+                exchange_order_id, _ = result  # Extract the exchange_order_id (could be tx_hash or combined)
+            else:
+                exchange_order_id = result  # Already the proper exchange_order_id
+
+            self.logger().info(f"Order placed successfully: {order_id} -> {exchange_order_id}")
+
+            # Return the full exchange_order_id (could be tx_hash alone or "tx_hash:blockchain_order_id")
+            timestamp = time.time()
+            return exchange_order_id, timestamp
+
+        except Exception as e:
+            # Simple error handling following ORDER_FAILURE_HANDLING.md pattern:
+            # Just log and re-raise - let ExchangePyBase._create_order handle the rest
+            self.logger().error(f"Error placing order {order_id}: {e}")
+            raise
         try:
             self.logger().info("DEBUG: _place_order called with:")
             self.logger().info(f"  - order_id: {order_id}")

@@ -20,37 +20,49 @@ DEFAULT_DOMAIN = os.getenv("SOMNIA_DOMAIN", "mainnet")
 # Order execution parameters
 MAX_ORDERS_TO_MATCH = 2  # Maximum number of existing orders to match in limitSell/limitBuy functions
 
+# Batch order configuration constants
+BATCH_SIZE_THRESHOLD = 5  # Number of orders to trigger batch execution
+BATCH_TIMEOUT_SECONDS = 1.0  # Time limit to wait for more orders (in seconds)
+
 # Domain-specific configurations
 DOMAIN_CONFIG = {
     "mainnet": {
         "chain_id": 5031,  # Somnia mainnet chain ID
         "rpc_url": "https://api.infra.mainnet.somnia.network",
         "api_url": "https://api-somi.standardweb3.com",  # Base URL for API calls
-        "websocket_url": "wss://ws3-somnia-mainnet-ponder-release.standardweb3.com",  # Ponder websocket
-        "standard_exchange_address": "0x3Cb2CBb0CeB96c9456b11DbC7ab73c4848F9a14c",  # Mainnet exchange address
-        "standard_websocket_url": "https://ws1-somnia-mainnet-websocket-release.standardweb3.com/",  # Standard websocket
+        # Ponder websocket
+        "websocket_url": "wss://ws3-somnia-mainnet-ponder-release.standardweb3.com",
+        # Mainnet exchange address
+        "standard_exchange_address": "0x3Cb2CBb0CeB96c9456b11DbC7ab73c4848F9a14c",
+        # Standard websocket
+        "standard_websocket_url": "https://ws1-somnia-mainnet-websocket-release.standardweb3.com/",
     },
     "testnet": {
         "chain_id": 50312,  # Somnia testnet chain ID
         "rpc_url": "https://dream-rpc.somnia.network",
-        "api_url": "https://somnia-testnet-ponder-release.standardweb3.com/",  # Base URL for API calls
-        "websocket_url": "wss://ws3-somnia-testnet-ponder-release.standardweb3.com",  # Ponder websocket
+        "api_url": "https://somnia-testnet-ponder-release.standardweb3.com/",  # Base URL
+        # Ponder websocket
+        "websocket_url": "wss://ws3-somnia-testnet-ponder-release.standardweb3.com",
         "standard_exchange_address": "0x0d3251EF0D66b60C4E387FC95462Bf274e50CBE1",
-        "standard_websocket_url": "https://ws1-somnia-testnet-websocket-release.standardweb3.com/",  # Standard websocket
+        # Standard websocket
+        "standard_websocket_url": "https://ws1-somnia-testnet-websocket-release.standardweb3.com/",
     }
 }
 
 # Allow environment variables to override default values
+
+
 def get_domain_parameter(domain: str, parameter: str):
     """Get domain-specific parameter, allowing for environment variable override."""
     env_var_name = f"SOMNIA_{parameter.upper()}"
-    
+
     # Special handling for token addresses
     if parameter == "token_addresses":
         return TOKEN_ADDRESSES_PER_DOMAIN[domain]
-        
+
     default_value = DOMAIN_CONFIG[domain][parameter]
     return os.getenv(env_var_name, default_value)
+
 
 # Network configuration (these will be set dynamically based on domain)
 SOMNIA_CHAIN_ID = DOMAIN_CONFIG[DEFAULT_DOMAIN]["chain_id"]
@@ -59,8 +71,10 @@ SOMNIA_WEBSOCKET_URL = os.getenv("SOMNIA_WEBSOCKET_URL", DOMAIN_CONFIG[DEFAULT_D
 
 # Standard Exchange protocol endpoints
 STANDARD_EXCHANGE_ADDRESS = DOMAIN_CONFIG[DEFAULT_DOMAIN]["standard_exchange_address"]
-STANDARD_API_URL = os.getenv("SOMNIA_STANDARD_API_URL", DOMAIN_CONFIG[DEFAULT_DOMAIN]["api_url"])
-STANDARD_WEBSOCKET_URL = os.getenv("SOMNIA_STANDARD_WEBSOCKET_URL", DOMAIN_CONFIG[DEFAULT_DOMAIN]["standard_websocket_url"])
+STANDARD_API_URL = os.getenv("SOMNIA_STANDARD_API_URL",
+                             DOMAIN_CONFIG[DEFAULT_DOMAIN]["api_url"])
+STANDARD_WEBSOCKET_URL = os.getenv("SOMNIA_STANDARD_WEBSOCKET_URL",
+                                   DOMAIN_CONFIG[DEFAULT_DOMAIN]["standard_websocket_url"])
 
 # REST API base URL (same as the API URL)
 REST_API_BASE_URL = STANDARD_API_URL
@@ -113,7 +127,7 @@ TRADING_PAIRS_PER_DOMAIN = {
         "WBTC-USDC",
         "SOL-USDC",
         # Legacy pairs (may not be active)
-        "ATOM-USDC", 
+        "ATOM-USDC",
         "OSMO-USDC",
         "TOKEN1-TOKEN2"
     ]
@@ -152,17 +166,19 @@ TOKEN_ADDRESSES_PER_DOMAIN = {
 # Current token addresses based on default domain
 TOKEN_ADDRESSES = TOKEN_ADDRESSES_PER_DOMAIN[DEFAULT_DOMAIN]
 
+
 def get_token_addresses(domain: str = DEFAULT_DOMAIN) -> Dict[str, str]:
     """
     Get token addresses for the specified domain.
-    
+
     Args:
         domain: The domain to get token addresses for ("mainnet" or "testnet")
-        
+
     Returns:
         Dictionary mapping token symbols to their contract addresses on the specified domain
     """
     return TOKEN_ADDRESSES_PER_DOMAIN[domain]
+
 
 # Token decimals mapping
 TOKEN_DECIMALS = {
@@ -171,13 +187,13 @@ TOKEN_DECIMALS = {
     "WBTC": 8,
     "SOL": 9,  # Standard SOL decimals
     "ATOM": 18,
-    "OSMO": 18, 
+    "OSMO": 18,
     "TOKEN1": 18,
     "TOKEN2": 18,
     "SOMI": 18,  # SOMI token decimals
 }
 
-# Contract precision constants  
+# Contract precision constants
 CONTRACT_PRICE_DECIMALS = 4  # Allow 4 decimal places for price precision (e.g., 1.2345 USDC)
 DENOM = 1  # Send raw price value - StandardWeb3 client will apply the proper conversion (price * 10**8)
 
@@ -210,7 +226,7 @@ API_DEFAULTS = {
 # WebSocket message types
 WS_MESSAGE_TYPES = {
     "ORDERBOOK_UPDATE": "orderbook_update",
-    "TRADE_UPDATE": "trade_update", 
+    "TRADE_UPDATE": "trade_update",
     "BALANCE_UPDATE": "balance_update",
     "ORDER_UPDATE": "order_update"
 }
@@ -265,7 +281,7 @@ NATIVE_TOKEN_LIST = ["ETH", "SOMNIA", "SOMI", "STT"]
 # Error messages
 ERROR_MESSAGES = {
     "insufficient_balance": "Insufficient balance to place order.",
-    "invalid_order_params": "Invalid order parameters provided.", 
+    "invalid_order_params": "Invalid order parameters provided.",
     "order_not_found": "Order not found.",
     "connector_not_ready": "Somnia connector not ready. Please check the connection.",
     "unexpected_error": "An unexpected error occurred. Please check logs for details.",
