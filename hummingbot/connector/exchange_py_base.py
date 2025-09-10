@@ -221,7 +221,21 @@ class ExchangePyBase(ExchangeBase, ABC):
         :param price: the starting point price
         """
         trading_rule = self._trading_rules[trading_pair]
-        return Decimal(trading_rule.min_price_increment)
+        price_quantum = Decimal(trading_rule.min_price_increment)
+        
+        # 🔍 DEBUG: Log price quantization details
+        if hasattr(self, 'logger') and callable(self.logger):
+            self.logger().info(f"🔍 PRICE QUANTIZATION: {trading_pair}")
+            self.logger().info(f"   - Original price: {price}")
+            self.logger().info(f"   - min_price_increment: {trading_rule.min_price_increment}")
+            self.logger().info(f"   - price_quantum: {price_quantum}")
+            # Calculate what quantized price will be
+            quantized = (price // price_quantum) * price_quantum
+            self.logger().info(f"   - Quantized result: {price} -> {quantized}")
+            if price != quantized:
+                self.logger().warning(f"   - ⚠️ PRICE CHANGED: {price} -> {quantized}")
+                
+        return price_quantum
 
     def get_order_size_quantum(self, trading_pair: str, order_size: Decimal) -> Decimal:
         """

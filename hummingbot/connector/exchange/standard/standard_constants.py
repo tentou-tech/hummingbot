@@ -177,9 +177,9 @@ TOKEN_DECIMALS = {
     "SOMI": 18,  # SOMI token decimals
 }
 
-# Contract precision constants
-CONTRACT_PRICE_DECIMALS = 8  # Based on DENOM constant (100000000 = 10^8) from matching engine
-DENOM = 100000000  # Price precision denominator from the matching engine contract
+# Contract precision constants  
+CONTRACT_PRICE_DECIMALS = 4  # Allow 4 decimal places for price precision (e.g., 1.2345 USDC)
+DENOM = 1  # Send raw price value - StandardWeb3 client will apply the proper conversion (price * 10**8)
 
 # REST API endpoints (replacing GraphQL)
 REST_API_ENDPOINTS = {
