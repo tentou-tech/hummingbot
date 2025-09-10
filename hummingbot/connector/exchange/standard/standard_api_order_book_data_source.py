@@ -54,16 +54,16 @@ class StandardAPIOrderBookDataSource(OrderBookTrackerDataSource):
         self._domain = domain
         self._api_factory = api_factory
         self._throttler = throttler
-        
+
         # Cache for latest API prices to fix stale LastTrade price bug
         self._last_api_prices = {}  # {trading_pair: price}
-        
+
         # Store latest API response to access mktPrice for pricing
         self._latest_api_response = None
-        
+
         self.logger().info(f"🔄 Initialized API price cache for LastTrade fix: {self._last_api_prices}")
-        self.logger().info(f"🔄 Initialized latest API response storage for mktPrice access")
-        
+        self.logger().info("🔄 Initialized latest API response storage for mktPrice access")
+
         self.logger().info(f"StandardAPIOrderBookDataSource initialized with trading_pairs: {trading_pairs}")
         self.logger().info(f"Connector provided: {connector is not None}")
         self.logger().info(f"API factory provided: {api_factory is not None}")
@@ -143,13 +143,13 @@ class StandardAPIOrderBookDataSource(OrderBookTrackerDataSource):
                 if last_trade_price is not None:
                     result[trading_pair] = last_trade_price
                     self.logger().info(f"✅ Got actual last trade price for {trading_pair}: {last_trade_price}")
-                    
+
                     # 🔧 FIX: Cache the fresh API price for LastTrade price type
                     # This prevents the strategy from using stale cached prices
                     self._last_api_prices[trading_pair] = last_trade_price
                     self.logger().info(f"🔄 Cached API price for LastTrade: {trading_pair} -> {last_trade_price}")
                     self.logger().info(f"📊 Current price cache: {self._last_api_prices}")
-                    
+
                     # 🔧 FIX: Update the exchange's order book last_trade_price with fresh API data
                     # This prevents the strategy from using stale cached prices
                     try:
@@ -158,46 +158,20 @@ class StandardAPIOrderBookDataSource(OrderBookTrackerDataSource):
                             if order_book is not None:
                                 old_price = order_book.last_trade_price
                                 order_book.last_trade_price = last_trade_price
-                                self.logger().info(f"🔄 Updated order book last_trade_price for {trading_pair}: {old_price} -> {last_trade_price}")
+                                self.logger().info(
+                                    f"🔄 Updated order book last_trade_price for {trading_pair}: "
+                                    f"{old_price} -> {last_trade_price}"
+                                )
                             else:
                                 self.logger().warning(f"⚠️ Order book not found for {trading_pair}")
                         else:
-                            self.logger().warning(f"⚠️ Connector does not have get_order_book method")
+                            self.logger().warning("⚠️ Connector does not have get_order_book method")
                     except Exception as update_error:
                         self.logger().warning(f"Could not update order book last_trade_price: {update_error}")
                 else:
-                    self.logger().info(f"⚠️ No trade price from API for {trading_pair}, using order book fallback")
-
-                    # For DEX with limited trade history, use mid-price as "last trade price"
-                    # This gives PMM a reasonable price to work with
-                    snapshot = await self._request_order_book_snapshot(trading_pair)
-
-                    bids = snapshot.get("bids", [])
-                    asks = snapshot.get("asks", [])
-
-                    if bids and asks:
-                        # bids and asks are arrays of [price, size] tuples
-                        best_bid = float(bids[0][0]) if len(bids[0]) > 0 else 0
-                        best_ask = float(asks[0][0]) if len(asks[0]) > 0 else 0
-                        if best_bid > 0 and best_ask > 0:
-                            # Use mid-price as last trade price for DEX
-                            mid_price = (best_bid + best_ask) / 2
-                            result[trading_pair] = mid_price
-                            self.logger().info(
-                                f"📊 Using mid-price as last trade price for {trading_pair}: {mid_price}"
-                            )
-                            self.logger().info(
-                                f"📊 Best bid: {best_bid}, Best ask: {best_ask}, Mid-price: {mid_price}"
-                            )
-                    elif bids:
-                        result[trading_pair] = float(bids[0][0]) if len(bids[0]) > 0 else 0
-                        log_msg = f"📊 Using best bid as last trade price for {trading_pair}: {result[trading_pair]}"
-                        self.logger().info(log_msg)
-                    elif asks:
-                        result[trading_pair] = float(asks[0][0]) if len(asks[0]) > 0 else 0
-                        ask_log_msg = f"📊 Using best ask as last trade price for {trading_pair}: {result[trading_pair]}"
-                        self.logger().info(ask_log_msg)
-
+                    self.logger().error(f"⚠️ No trade price from API for {trading_pair}, using order book fallback")
+                    # throw error
+                    raise ValueError(f"No trade price available for {trading_pair}")
             except Exception as e:
                 self.logger().error(f"❌ Error getting last traded price for {trading_pair}: {e}")
 
@@ -357,7 +331,8 @@ class StandardAPIOrderBookDataSource(OrderBookTrackerDataSource):
 
         # 🔧 STORE LATEST API RESPONSE - for get_price_by_type to access mktPrice
         self._latest_api_response = response
-        self.logger().debug(f"🔄 Stored latest API response for pricing: mktPrice = {response.get('mktPrice') if response else None}")
+        mkt_price = response.get('mktPrice') if response else None
+        self.logger().debug(f"🔄 Stored latest API response for pricing: mktPrice = {mkt_price}")
 
         # Process the response from StandardWeb3 API
         if response and isinstance(response, dict):
@@ -645,15 +620,13 @@ class StandardAPIOrderBookDataSource(OrderBookTrackerDataSource):
 
     async def _get_last_trade_from_api(self, trading_pair: str) -> Optional[float]:
         """
-        Get the last trade price from the API using real-time order book mid-price.
-        🔧 CRITICAL FIX: mktPrice from fetch_orderbook_ticks was returning stale prices (1.625 vs 1.48 market)
-        Now using fresh order book bid/ask to calculate accurate mid-price for real-time trading.
+        Get the last trade price from the API using mktPrice if available.
 
         Args:
             trading_pair: Trading pair (e.g., SOMI-USDC)
 
         Returns:
-            Last trade price (mid-price) or None if no order book data
+            Last trade price (mktPrice) or None if not available
         """
         try:
             if self._standard_client is None:
@@ -675,62 +648,39 @@ class StandardAPIOrderBookDataSource(OrderBookTrackerDataSource):
                 return None
 
             fetch_msg = (
-                f"🔍 Fetching REAL-TIME order book for {trading_pair}: "
+                f"🔍 Fetching market price for {trading_pair}: "
                 f"{base_asset}({base_address}) / {quote_asset}({quote_address})"
             )
             self.logger().info(fetch_msg)
 
-            # 🔧 FIX: Use fresh order book data instead of potentially stale mktPrice
+            # Get market price from API response
             try:
-                self.logger().info("🎯 Getting fresh order book for real-time mid-price calculation")
+                self.logger().info("🎯 Getting market price from API")
                 response = await self._standard_client.fetch_orderbook_ticks(
                     base=base_address,
                     quote=quote_address,
-                    limit=10  # Get more levels for better price discovery
+                    limit=10
                 )
 
                 if response and isinstance(response, dict):
-                    # 🔧 CRITICAL: Use real-time bids/asks instead of stale mktPrice
-                    bids = response.get("bids", [])
-                    asks = response.get("asks", [])
-                    
-                    self.logger().info(f"📊 Order book data - Bids: {len(bids)}, Asks: {len(asks)}")
-                    
-                    if bids and asks and len(bids) > 0 and len(asks) > 0:
-                        # Get best bid and ask prices
-                        best_bid = float(bids[0][0]) if len(bids[0]) > 0 else 0
-                        best_ask = float(asks[0][0]) if len(asks[0]) > 0 else 0
-                        
-                        self.logger().info(f"📊 Best bid: {best_bid}, Best ask: {best_ask}")
-                        
-                        if best_bid > 0 and best_ask > 0 and best_ask > best_bid:
-                            # Calculate real-time mid-price
-                            mid_price = (best_bid + best_ask) / 2.0
-                            
-                            # Also log the stale mktPrice for comparison
-                            mkt_price = response.get("mktPrice")
-                            self.logger().info(f"🔥 PRICE COMPARISON for {trading_pair}:")
-                            self.logger().info(f"   📊 Real-time mid-price: {mid_price}")
-                            self.logger().info(f"   📡 Stale mktPrice: {mkt_price}")
-                            self.logger().info(f"   📈 Best bid: {best_bid}")
-                            self.logger().info(f"   📉 Best ask: {best_ask}")
-                            
-                            self.logger().info(f"✅ Using REAL-TIME mid-price as last trade price for {trading_pair}: {mid_price}")
-                            return float(mid_price)
-                        else:
-                            self.logger().warning(f"⚠️ Invalid bid/ask prices: bid={best_bid}, ask={best_ask}")
+                    # Get mktPrice if available
+                    mkt_price = response.get("mktPrice")
+
+                    if mkt_price and mkt_price > 0:
+                        self.logger().info(f"✅ Got market price for {trading_pair}: {mkt_price}")
+                        return float(mkt_price)
                     else:
-                        self.logger().warning(f"⚠️ Empty or invalid order book data")
+                        self.logger().warning(f"⚠️ No valid mktPrice in response: {mkt_price}")
                 else:
                     self.logger().warning(f"⚠️ Invalid response from fetch_orderbook_ticks: {response}")
 
             except Exception as e:
-                self.logger().warning(f"⚠️ Could not get real-time order book: {e}")
+                self.logger().warning(f"⚠️ Could not get market price: {e}")
 
             return None  # No price data available
 
         except Exception as e:
-            self.logger().error(f"❌ Error fetching real-time price for {trading_pair}: {e}")
+            self.logger().error(f"❌ Error fetching market price for {trading_pair}: {e}")
             return None
 
     async def listen_for_order_book_diffs(self, ev_loop: asyncio.AbstractEventLoop, output: asyncio.Queue):
