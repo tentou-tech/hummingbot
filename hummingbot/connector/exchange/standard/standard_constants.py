@@ -178,7 +178,7 @@ TOKEN_DECIMALS = {
 }
 
 # Contract precision constants  
-CONTRACT_PRICE_DECIMALS = 4  # Allow 4 decimal places for price precision (e.g., 1.2345 USDC)
+CONTRACT_PRICE_DECIMALS = 6  # Allow 6 decimal places for price precision (e.g., 1.2345 USDC)
 DENOM = 1  # Send raw price value - StandardWeb3 client will apply the proper conversion (price * 10**8)
 
 # REST API endpoints (replacing GraphQL)
