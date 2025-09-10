@@ -56,7 +56,7 @@ from hummingbot.connector.exchange.standard.standard_constants import MAX_ORDERS
 from hummingbot.connector.exchange_py_base import ExchangePyBase
 from hummingbot.connector.trading_rule import TradingRule
 from hummingbot.connector.utils import combine_to_hb_trading_pair
-from hummingbot.core.data_type.common import OrderType, TradeType, PriceType
+from hummingbot.core.data_type.common import OrderType, PriceType, TradeType
 from hummingbot.core.data_type.in_flight_order import InFlightOrder, OrderState, OrderUpdate, TradeUpdate
 from hummingbot.core.data_type.order_book_tracker_data_source import OrderBookTrackerDataSource
 from hummingbot.core.data_type.trade_fee import AddedToCostTradeFee, TokenAmount, TradeFeeBase
@@ -1577,7 +1577,7 @@ class StandardExchange(ExchangePyBase):
                         "minNotional": "1.0",
                         "status": "TRADING",
                     }
-                    
+
                     # 🔍 DEBUG: Log hardcoded trading rule (this method may override our fix!)
                     self.logger().warning(f"🔍 HARDCODED RULE WARNING: {symbol}")
                     self.logger().warning(f"   - Using hardcoded tickSize: 0.001")
@@ -2037,61 +2037,47 @@ class StandardExchange(ExchangePyBase):
 
     def get_price_by_type(self, trading_pair: str, price_type: PriceType) -> Decimal:
         """
-        Override to use fresh mktPrice from order book data instead of dangerous fallbacks.
-        
-        🔥 SOLUTION: Use the mktPrice that's already fetched by the data source during order book updates.
-        🚨 NO EVENT LOOP ISSUES - no fresh API calls, just use existing data.
-        🚨 NO MID-PRICE FALLBACKS - DEX order books have corrupted ask prices.
+        Override to get fresh mktPrice from the latest API response.
+
+        🔥 CRITICAL: This is called EVERY TIME the bot calculates order prices!
+        🚨 MUST be fresh data - no stale cached prices allowed.
+        🚨 MUST be synchronous - no async calls allowed.
         """
-        
+
         self.logger().info(f"🔍 PRICE REQUEST: get_price_by_type({trading_pair}, {price_type})")
-        
+
         if price_type is PriceType.LastTrade:
             self.logger().info(f"🎯 LastTrade price requested for {trading_pair}")
-            
+
             try:
-                # Strategy 1: Get mktPrice from the most recent order book data
-                if hasattr(self, '_order_book_tracker') and hasattr(self._order_book_tracker, 'data_source'):
+                # Get fresh mktPrice from the latest API response stored in data source
+                if hasattr(self, '_order_book_tracker') and self._order_book_tracker:
                     data_source = self._order_book_tracker.data_source
-                    
-                    # Check if we have access to the latest API response data
-                    if hasattr(data_source, '_latest_api_response'):
-                        latest_response = data_source._latest_api_response
-                        if latest_response and isinstance(latest_response, dict):
-                            mkt_price = latest_response.get("mktPrice")
-                            if mkt_price and isinstance(mkt_price, (int, float)) and mkt_price > 0:
-                                result = Decimal(str(mkt_price))
-                                self.logger().info(f"✅ Using latest mktPrice for {trading_pair}: {result}")
-                                return result
-                
-                # Strategy 2: Try to get mktPrice from order book last_trade_price if it was set
-                order_book = self.get_order_book(trading_pair)
-                if order_book is not None and hasattr(order_book, 'last_trade_price'):
-                    last_trade_price = order_book.last_trade_price
-                    if last_trade_price and not last_trade_price.is_nan() and last_trade_price > 0:
-                        self.logger().info(f"✅ Using order book last_trade_price for {trading_pair}: {last_trade_price}")
-                        return last_trade_price
-                
-                # Strategy 3: Use reasonable bid-based pricing to avoid corrupted asks
-                best_bid = self.get_price(trading_pair, False)  # False = bid
-                if not best_bid.is_nan() and best_bid > 0:
-                    # Use bid + tiny spread as reasonable market price
-                    reasonable_price = best_bid * Decimal("1.001")  # Bid + 0.1%
-                    self.logger().info(f"✅ Using bid-based price for {trading_pair}: {reasonable_price}")
-                    return reasonable_price
-                
-                self.logger().error(f"❌ No valid price source available for {trading_pair}")
-                raise ValueError(f"No price source available for {trading_pair}")
-                
+                    if hasattr(data_source, '_latest_api_response') and data_source._latest_api_response:
+                        mkt_price = data_source._latest_api_response.get("mktPrice")
+                        if mkt_price and mkt_price > 0:
+                            self.logger().info(f"✅ Using fresh mktPrice for {trading_pair}: {mkt_price}")
+                            return Decimal(str(mkt_price))
+                        else:
+                            self.logger().warning(f"⚠️ No valid mktPrice in latest API response: {mkt_price}")
+                    else:
+                        self.logger().warning(f"⚠️ No latest API response available")
+                else:
+                    self.logger().warning(f"⚠️ Order book tracker not available")
+
+                self.logger().error(f"❌ No fresh mktPrice available for {trading_pair}")
+                raise ValueError(f"No fresh mktPrice available for {trading_pair}")
+
             except Exception as e:
-                self.logger().error(f"💥 Failed to get LastTrade price for {trading_pair}: {e}")
-                raise Exception(f"LastTrade pricing failed for {trading_pair}: {e}")
+                self.logger().error(f"💥 Failed to get fresh LastTrade price for {trading_pair}: {e}")
+                raise Exception(f"Fresh LastTrade pricing failed for {trading_pair}: {e}")
         else:
-            # Use base implementation for other price types  
+            # Use base implementation for other price types
             self.logger().info(f"🔄 Using base implementation for price type: {price_type}")
             result = super().get_price_by_type(trading_pair, price_type)
             self.logger().info(f"✅ Base implementation returned: {result}")
             return result
+
     async def _make_trading_rules_request(self) -> Any:
         """
         Make request to get trading rules.
@@ -2123,7 +2109,7 @@ class StandardExchange(ExchangePyBase):
                 "minNotional": str(CONSTANTS.MIN_ORDER_SIZE),
                 "status": "TRADING",
             }
-            
+
             # 🔍 DEBUG: Log the trading rule values
             tick_size_value = str(Decimal("1e-{}".format(CONSTANTS.CONTRACT_PRICE_DECIMALS)))
             self.logger().info(f"🔍 TRADING RULE DEBUG: {trading_pair}")
@@ -2290,7 +2276,7 @@ class StandardExchange(ExchangePyBase):
                 # For buy orders, need allowance for quote token (USDC)
                 token_address = quote_address
                 quote_decimals = utils.get_token_decimals(utils.convert_address_to_symbol(quote_address, self._domain))
-                required_amount =(amount * price) * (10**quote_decimals)
+                required_amount = (amount * price) * (10**quote_decimals)
                 token_symbol = utils.convert_address_to_symbol(quote_address, self._domain)
             else:
                 # For sell orders, need allowance for base token (SOMI)
